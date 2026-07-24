@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./core.css" />
 </head>
 <body>
   <div id="backgroundStage" class="background-stage" aria-hidden="true"></div>
@@ -86,6 +87,18 @@
 
     <div class="control-group color-grid">
       <label>Primary<input data-setting="primary" type="color"></label><label>Secondary<input data-setting="secondary" type="color"></label><label>Accent<input data-setting="accent" type="color"></label><label>Background<input data-setting="background" type="color"></label><label>Surface<input data-setting="surface" type="color"></label><label>Text<input data-setting="text" type="color"></label>
+    </div>
+
+    <div class="control-group">
+      <h4>Portal Core / World Icon</h4>
+      <p class="control-note">Replace the glowing infinity center with a photo, transparent PNG, GIF, MP4, or WebM loop.</p>
+      <div id="coreDrop" class="drop-zone" tabindex="0"><strong>Drop your world icon or loop</strong><span>or click to browse</span><input id="coreInput" type="file" accept="image/*,video/mp4,video/webm" hidden></div>
+      <div class="two-column-controls core-controls">
+        <label>Core size<input data-setting="coreSize" type="range" min="100" max="320" step="10"></label>
+        <label>Core shape<select data-setting="coreShape"><option value="sphere">Glowing sphere</option><option value="rounded">Rounded portal</option><option value="circle">Clean circle</option><option value="none">No frame</option></select></label>
+      </div>
+      <label>Fallback symbol<input data-setting="coreFallback" type="text" maxlength="12" placeholder="∞"></label>
+      <div id="coreHistory" class="media-history"></div>
     </div>
 
     <div class="control-group"><h4>Background Engine</h4><div id="backgroundDrop" class="drop-zone" tabindex="0"><strong>Drop photo, GIF, MP4, or WebM</strong><span>or click to browse</span><input id="backgroundInput" type="file" accept="image/*,video/mp4,video/webm" hidden></div><div id="backgroundHistory" class="media-history"></div></div>
