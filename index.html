@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#100b07" />
+  <title>Harmonic City</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="backgroundStage" class="background-stage" aria-hidden="true"></div>
+  <div class="background-overlay" aria-hidden="true"></div>
+  <canvas id="particleCanvas" aria-hidden="true"></canvas>
+
+  <section id="introScreen" class="intro-screen">
+    <div id="introMedia" class="intro-media"></div>
+    <div class="intro-shade"></div>
+    <div class="intro-content">
+      <div class="intro-logo" id="introLogo">HC</div>
+      <p id="introKicker">WELCOME TO</p>
+      <h1 id="introTitle">Harmonic City</h1>
+      <button id="enterPortal" class="primary-button">Enter the City</button>
+    </div>
+  </section>
+
+  <header class="topbar">
+    <a class="wordmark" href="#portal" aria-label="Harmonic City home">
+      <span class="wordmark-mark">HC</span>
+      <span id="portalTitleTop">HARMONIC CITY</span>
+    </a>
+    <div class="top-actions">
+      <button id="audioToggle" class="pill-button" type="button">▶ Play audio</button>
+      <button id="openCustomizer" class="pill-button" type="button">☷ Customize</button>
+    </div>
+  </header>
+
+  <main id="portal" class="page-shell">
+    <section class="hero-panel" id="heroPanel">
+      <div class="hero-copy">
+        <p id="heroEyebrow" class="eyebrow">WELCOME TO YOUR UNIVERSE</p>
+        <h2 id="heroTitle">Harmonic City</h2>
+        <p id="heroDescription" class="hero-description">Hoopz, food, fashion, and every world connected to Melodic. Choose your melody.</p>
+      </div>
+
+      <div id="orbitSystem" class="orbit-system" aria-label="Brand worlds"></div>
+    </section>
+
+    <section id="profileStage" class="profile-stage" aria-live="polite"></section>
+  </main>
+
+  <aside id="customizer" class="customizer" aria-hidden="true">
+    <div class="customizer-head">
+      <div>
+        <p class="eyebrow">PORTAL CONTROLS</p>
+        <h3>Customize Harmonic City</h3>
+      </div>
+      <button id="closeCustomizer" class="icon-button" aria-label="Close customizer">✕</button>
+    </div>
+
+    <div class="control-group">
+      <h4>Collection Themes</h4>
+      <div id="themeGrid" class="theme-grid"></div>
+    </div>
+
+    <div class="control-group">
+      <h4>Text</h4>
+      <label>Portal title<input data-setting="portalTitle" type="text"></label>
+      <label>Hero title<input data-setting="heroTitle" type="text"></label>
+      <label>Hero eyebrow<input data-setting="heroEyebrow" type="text"></label>
+      <label>Description<textarea data-setting="heroDescription" rows="3"></textarea></label>
+      <label>Intro title<input data-setting="introTitle" type="text"></label>
+      <label>Intro kicker<input data-setting="introKicker" type="text"></label>
+    </div>
+
+    <div class="control-group two-column-controls">
+      <label>Headline font<select data-setting="headlineFont"><option value="Archivo Black">Archivo Black</option><option value="Playfair Display">Playfair Display</option><option value="Inter">Inter</option></select></label>
+      <label>Body font<select data-setting="bodyFont"><option value="Inter">Inter</option><option value="Playfair Display">Playfair Display</option></select></label>
+      <label>Icon size<input data-setting="iconScale" type="range" min="75" max="180" step="5"></label>
+      <label>Orbit speed<input data-setting="orbitSpeed" type="range" min="12" max="50" step="1"></label>
+    </div>
+
+    <div class="control-group color-grid">
+      <label>Primary<input data-setting="primary" type="color"></label>
+      <label>Secondary<input data-setting="secondary" type="color"></label>
+      <label>Accent<input data-setting="accent" type="color"></label>
+      <label>Background<input data-setting="background" type="color"></label>
+      <label>Surface<input data-setting="surface" type="color"></label>
+      <label>Text<input data-setting="text" type="color"></label>
+    </div>
+
+    <div class="control-group">
+      <h4>Background Engine</h4>
+      <div id="backgroundDrop" class="drop-zone" tabindex="0">
+        <strong>Drop photo, GIF, MP4, or WebM</strong>
+        <span>or click to browse</span>
+        <input id="backgroundInput" type="file" accept="image/*,video/mp4,video/webm" hidden>
+      </div>
+      <div id="backgroundHistory" class="media-history"></div>
+    </div>
+
+    <div class="control-group">
+      <h4>Intro Screen Media</h4>
+      <div id="introDrop" class="drop-zone" tabindex="0">
+        <strong>Drop intro photo, GIF, MP4, or WebM</strong>
+        <span>or click to browse</span>
+        <input id="introInput" type="file" accept="image/*,video/mp4,video/webm" hidden>
+      </div>
+      <div id="introHistory" class="media-history"></div>
+    </div>
+
+    <div class="control-group">
+      <h4>Portal Audio</h4>
+      <div id="audioDrop" class="drop-zone" tabindex="0">
+        <strong>Drop WAV, MP3, M4A, OGG, or WebM audio</strong>
+        <span>or click to browse</span>
+        <input id="audioInput" type="file" accept="audio/*" hidden>
+      </div>
+      <label>Volume<input data-setting="volume" type="range" min="0" max="1" step="0.05"></label>
+      <div id="audioHistory" class="media-history"></div>
+    </div>
+
+    <div class="control-group">
+      <h4>World Editor</h4>
+      <div id="worldEditor"></div>
+    </div>
+
+    <p id="saveStatus" class="save-status">All changes save automatically.</p>
+  </aside>
+
+  <template id="profileTemplate">
+    <article class="profile-card">
+      <div class="profile-art"></div>
+      <div class="profile-info">
+        <p class="profile-eyebrow"></p>
+        <h3 class="profile-title"></h3>
+        <p class="profile-description"></p>
+        <div class="social-grid"></div>
+      </div>
+    </article>
+  </template>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
