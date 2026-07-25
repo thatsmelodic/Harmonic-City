@@ -31,22 +31,29 @@ function ensurePasswordUI(){
   actions.insertBefore(button,$('#cloudSyncNow'));
 
   button.addEventListener('click',async()=>{
-    const config=readConfig();
-    const url=config.url||$('#cloudUrl')?.value.trim();
-    const anonKey=config.anonKey||$('#cloudAnonKey')?.value.trim();
+    const saved=readConfig();
+    const url=$('#cloudUrl')?.value.trim()||saved.url;
+    const anonKey=$('#cloudAnonKey')?.value.trim()||saved.anonKey;
     const emailValue=$('#cloudEmail')?.value.trim();
     const password=input.value;
-    if(!url||!anonKey){setStatus('Save the Supabase connection first.');return}
+    if(!url||!anonKey){setStatus('Cloud setup is incomplete.');return}
     if(!emailValue||!password){setStatus('Enter your email and password.');return}
     button.disabled=true;
-    setStatus('Signing in without email…');
+    setStatus('Signing in…');
     try{
+      // Persist the connection on this device before auth/reload. Without this,
+      // mobile could sign in successfully and then lose the project config after refresh.
+      localStorage.setItem(CONFIG_KEY,JSON.stringify({url,anonKey}));
       const client=createClient(url,anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'harmonic-city-auth'}});
       const {data,error}=await client.auth.signInWithPassword({email:emailValue,password});
       if(error)throw error;
       if(!data.session)throw new Error('No session returned.');
-      setStatus('Password sign-in successful. Loading your cloud workspace…');
-      location.reload();
+      // Verify the persisted session before reloading into cloud-sync.js.
+      const {data:verified,error:verifyError}=await client.auth.getSession();
+      if(verifyError)throw verifyError;
+      if(!verified.session)throw new Error('The sign-in session did not persist on this device.');
+      setStatus('Signed in. Opening your cloud workspace…');
+      setTimeout(()=>location.reload(),300);
     }catch(error){
       setStatus(`Password sign-in failed: ${error.message}`);
       button.disabled=false;
