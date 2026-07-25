@@ -24,7 +24,25 @@
   document.addEventListener('pointerdown',e=>{if(!active)return;const target=e.target.closest('[data-studio-id],.profile-art,.profile-info');if(!target)return;const r=target.getBoundingClientRect();const resize=e.clientX>r.right-22&&e.clientY>r.bottom-22;begin(e,resize)});
   document.addEventListener('pointermove',e=>{if(!mode||!selected)return;const dx=e.clientX-start.px,dy=e.clientY-start.py;let v={...(layout[start.id]||{})};if(mode==='drag'){v.x=start.x+dx;v.y=start.y+dy;const rr=selected.getBoundingClientRect(),cx=rr.left+rr.width/2,cy=rr.top+rr.height/2;const snapX=Math.abs(cx-innerWidth/2)<9,snapY=Math.abs(cy-innerHeight/2)<9;guideV.style.display=snapX?'block':'none';guideH.style.display=snapY?'block':'none';guideV.style.left='50%';guideH.style.top='50%';if(snapX)v.x+=innerWidth/2-cx;if(snapY)v.y+=innerHeight/2-cy}else{v.w=Math.max(40,start.w+dx);v.h=Math.max(40,start.h+dy)}layout[start.id]=v;applyOne(selected);select(selected)});
   document.addEventListener('pointerup',()=>{if(mode){mode=null;guideV.style.display=guideH.style.display='none';write()}});
-  function syncText(el){const key=el.dataset.studioText;if(!key)return;let state={};try{state=JSON.parse(localStorage.getItem(STATE_KEY)||'{}')}catch{};const text=el.textContent.trim();if(key==='heroTitle'||key==='heroEyebrow'||key==='heroDescription'){state[key]=text}else{const activeId=state.activeWorld||'thatsmelodic';const worlds=state.worlds||[];const w=worlds.find(x=>x.id===activeId);if(w){if(key==='worldName')w.name=text;if(key==='worldEyebrow')w.eyebrow=text;if(key==='worldDescription')w.description=text}}localStorage.setItem(STATE_KEY,JSON.stringify(state));document.querySelector(`[data-setting="${key}"]`)?.setAttribute('value',text)}
+  function fireInput(input,text){if(!input)return false;input.value=text;input.dispatchEvent(new Event('input',{bubbles:true}));return true}
+  function syncText(el){
+    const key=el.dataset.studioText;if(!key)return;
+    const text=el.textContent.trim();
+    if(key==='heroTitle'||key==='heroEyebrow'||key==='heroDescription'){
+      if(fireInput(document.querySelector(`[data-setting="${key}"]`),text))return;
+    }else{
+      let state={};try{state=JSON.parse(localStorage.getItem(STATE_KEY)||'{}')}catch{}
+      const activeId=state.activeWorld||'thatsmelodic';
+      const index=(state.worlds||[]).findIndex(w=>w.id===activeId);
+      const details=document.querySelectorAll('#worldEditor details')[index];
+      const fieldIndex=key==='worldName'?0:key==='worldEyebrow'?1:2;
+      const input=details?.querySelectorAll('label input, label textarea')?.[fieldIndex];
+      if(fireInput(input,text))return;
+      const worlds=state.worlds||[];const w=worlds.find(x=>x.id===activeId);
+      if(w){if(key==='worldName')w.name=text;if(key==='worldEyebrow')w.eyebrow=text;if(key==='worldDescription')w.description=text}
+      localStorage.setItem(STATE_KEY,JSON.stringify(state));
+    }
+  }
   document.addEventListener('dblclick',e=>{if(!active)return;const el=e.target.closest('[data-studio-text],.profile-eyebrow,.profile-title,.profile-description');if(!el)return;e.preventDefault();el.contentEditable='true';el.focus();const range=document.createRange();range.selectNodeContents(el);const sel=getSelection();sel.removeAllRanges();sel.addRange(range)});
   document.addEventListener('focusout',e=>{const el=e.target.closest?.('[contenteditable="true"]');if(!el)return;el.contentEditable='false';syncText(el)});
   function restore(serialized,targetStack){targetStack.push(JSON.stringify(layout));layout=JSON.parse(serialized||'{}');eligible().forEach(applyOne);write();select(selected)}
