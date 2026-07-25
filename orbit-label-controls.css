@@ -5,21 +5,28 @@
   --orbit-label-weight: 900;
   --orbit-label-spacing: .7px;
   --orbit-label-case: uppercase;
+  --orbit-label-gap: 8px;
 }
 
 .world-label {
+  top: calc(100% + var(--orbit-label-gap)) !important;
   color: var(--orbit-label-color) !important;
   font-family: var(--orbit-label-font), sans-serif !important;
   font-size: var(--orbit-label-size) !important;
   font-weight: var(--orbit-label-weight) !important;
   letter-spacing: var(--orbit-label-spacing) !important;
   text-transform: var(--orbit-label-case) !important;
-  transition: color .2s ease, filter .2s ease, transform .2s ease;
+  line-height: 1.05;
+  transition: color .2s ease, filter .2s ease, transform .2s ease, opacity .2s ease;
+}
+
+html[data-orbit-labels='hide'] .world-label {
+  display: none !important;
 }
 
 .world-node:hover .world-label {
   filter: drop-shadow(0 0 8px currentColor);
-  transform: translateY(2px) scale(1.04);
+  transform: translateY(1px) scale(1.04);
 }
 
 .orbit-label-panel .control-note {
@@ -31,4 +38,12 @@
 
 .orbit-label-panel input[type='color'] {
   min-height: 44px;
+}
+
+@media (max-width: 560px) {
+  .world-label {
+    max-width: 120px;
+    white-space: normal !important;
+    text-align: center;
+  }
 }
