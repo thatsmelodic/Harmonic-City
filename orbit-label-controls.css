@@ -1,0 +1,34 @@
+:root {
+  --orbit-label-font: 'Inter';
+  --orbit-label-color: #fff8e9;
+  --orbit-label-size: 11px;
+  --orbit-label-weight: 900;
+  --orbit-label-spacing: .7px;
+  --orbit-label-case: uppercase;
+}
+
+.world-label {
+  color: var(--orbit-label-color) !important;
+  font-family: var(--orbit-label-font), sans-serif !important;
+  font-size: var(--orbit-label-size) !important;
+  font-weight: var(--orbit-label-weight) !important;
+  letter-spacing: var(--orbit-label-spacing) !important;
+  text-transform: var(--orbit-label-case) !important;
+  transition: color .2s ease, filter .2s ease, transform .2s ease;
+}
+
+.world-node:hover .world-label {
+  filter: drop-shadow(0 0 8px currentColor);
+  transform: translateY(2px) scale(1.04);
+}
+
+.orbit-label-panel .control-note {
+  margin: -4px 0 16px;
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.5;
+}
+
+.orbit-label-panel input[type='color'] {
+  min-height: 44px;
+}
