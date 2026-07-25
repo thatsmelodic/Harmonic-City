@@ -3,11 +3,22 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const CONFIG_KEY='harmonic-city-supabase-config-v1';
 const $=s=>document.querySelector(s);
 
-function readConfig(){
-  try{return JSON.parse(localStorage.getItem(CONFIG_KEY)||'{}')}catch{return{}}
-}
-
+function readConfig(){try{return JSON.parse(localStorage.getItem(CONFIG_KEY)||'{}')}catch{return{}}}
 function setStatus(text){const el=$('#cloudStatus');if(el)el.textContent=text}
+async function resolvedConfig(){
+  try{
+    const response=await fetch('/api/config',{cache:'no-store'});
+    if(response.ok){
+      const data=await response.json();
+      if(data?.ok&&data.url&&data.anonKey){
+        const config={url:data.url,anonKey:data.anonKey};
+        localStorage.setItem(CONFIG_KEY,JSON.stringify(config));
+        return config;
+      }
+    }
+  }catch(error){console.warn('Runtime config unavailable',error)}
+  return readConfig();
+}
 
 function ensurePasswordUI(){
   const email=$('#cloudEmail');
@@ -31,9 +42,9 @@ function ensurePasswordUI(){
   actions.insertBefore(button,$('#cloudSyncNow'));
 
   button.addEventListener('click',async()=>{
-    const saved=readConfig();
-    const url=$('#cloudUrl')?.value.trim()||saved.url;
-    const anonKey=$('#cloudAnonKey')?.value.trim()||saved.anonKey;
+    const runtime=await resolvedConfig();
+    const url=$('#cloudUrl')?.value.trim()||runtime.url;
+    const anonKey=$('#cloudAnonKey')?.value.trim()||runtime.anonKey;
     const emailValue=$('#cloudEmail')?.value.trim();
     const password=input.value;
     if(!url||!anonKey){setStatus('Cloud setup is incomplete.');return}
@@ -41,19 +52,16 @@ function ensurePasswordUI(){
     button.disabled=true;
     setStatus('Signing in…');
     try{
-      // Persist the connection on this device before auth/reload. Without this,
-      // mobile could sign in successfully and then lose the project config after refresh.
       localStorage.setItem(CONFIG_KEY,JSON.stringify({url,anonKey}));
       const client=createClient(url,anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'harmonic-city-auth'}});
       const {data,error}=await client.auth.signInWithPassword({email:emailValue,password});
       if(error)throw error;
       if(!data.session)throw new Error('No session returned.');
-      // Verify the persisted session before reloading into cloud-sync.js.
       const {data:verified,error:verifyError}=await client.auth.getSession();
       if(verifyError)throw verifyError;
       if(!verified.session)throw new Error('The sign-in session did not persist on this device.');
-      setStatus('Signed in. Opening your cloud workspace…');
-      setTimeout(()=>location.reload(),300);
+      setStatus('Signed in. Loading the same cloud workspace on this device…');
+      setTimeout(()=>location.reload(),250);
     }catch(error){
       setStatus(`Password sign-in failed: ${error.message}`);
       button.disabled=false;
