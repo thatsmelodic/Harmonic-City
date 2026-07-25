@@ -1,0 +1,78 @@
+/* High-quality media pipeline. Uploaded files are displayed from their original source blobs without recompression. */
+.background-stage img,
+.background-stage video,
+.intro-media img,
+.intro-media video,
+.orbit-core img,
+.orbit-core video,
+.world-icon img,
+.profile-art img,
+.custom-social-icon,
+.history-item img,
+.history-item video {
+  image-rendering: auto;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
+
+.background-stage img,
+.background-stage video,
+.intro-media img,
+.intro-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.world-icon img,
+.orbit-core img,
+.orbit-core video,
+.profile-art img,
+.custom-social-icon {
+  object-fit: contain;
+  object-position: center;
+}
+
+html[data-media-quality='high'] .world-icon img,
+html[data-media-quality='high'] .orbit-core img,
+html[data-media-quality='high'] .profile-art img,
+html[data-media-quality='ultra'] .world-icon img,
+html[data-media-quality='ultra'] .orbit-core img,
+html[data-media-quality='ultra'] .profile-art img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+}
+
+html[data-media-quality='ultra'] .world-icon,
+html[data-media-quality='ultra'] .orbit-core,
+html[data-media-quality='ultra'] .profile-art {
+  isolation: isolate;
+}
+
+html[data-media-quality='ultra'] .world-icon img,
+html[data-media-quality='ultra'] .orbit-core img,
+html[data-media-quality='ultra'] .orbit-core video,
+html[data-media-quality='ultra'] .profile-art img {
+  filter: none;
+}
+
+/* Avoid accidental softness caused by translucent overlays directly over uploaded icon artwork. */
+html[data-media-quality='ultra'] .world-icon,
+html[data-media-quality='ultra'] .orbit-core.has-media {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@media (min-resolution: 2dppx) {
+  html[data-media-quality='high'] .world-icon img,
+  html[data-media-quality='ultra'] .world-icon img,
+  html[data-media-quality='high'] .orbit-core img,
+  html[data-media-quality='ultra'] .orbit-core img {
+    transform: translateZ(0) scale(1.001);
+  }
+}
