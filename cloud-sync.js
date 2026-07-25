@@ -3,115 +3,67 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const STATE_KEY='harmonic-city-state-v2';
 const LAYOUT_KEY='harmonic-city-studio-layout-v1';
 const CONFIG_KEY='harmonic-city-supabase-config-v1';
-const DEVICE_KEY='harmonic-city-device-id-v1';
+const CLOUD_META_KEY='harmonic-city-cloud-meta-v2';
+const MEDIA_BASELINE_KEY='harmonic-city-cloud-media-baseline-v1';
 const PORTAL_KEY='harmonic-city';
 const MEDIA_DB='harmonic-city-media';
 const MEDIA_STORE='assets';
-const STORAGE_BUCKET='harmonic-city-media';
-const WORKSPACE_VERSION=5;
 const MAGIC_LINK_SENT_KEY='harmonic-city-magic-link-sent-at';
 const MAX_COOLDOWN_SECONDS=60;
-const REQUEST_TIMEOUT_MS=30000;
-const POLL_INTERVAL_MS=20000;
-let supabase=null,session=null,syncTimer=null,syncing=false,mediaSyncing=false,cooldownTimer=null,authListener=null,realtimeChannel=null,initialSyncStarted=false,lastRemoteUpdatedAt='',applyingRemote=false,dirty=false;
+const POLL_INTERVAL_MS=4000;
+
+let supabase=null,session=null,syncTimer=null,syncing=false,polling=false,cooldownTimer=null,authListener=null,initialSyncStarted=false,suppressLocalTracking=false,lastCloudUpdatedAt=0,localDirty=false,pollTimer=null;
 const $=s=>document.querySelector(s);
+const nativeSet=localStorage.setItem.bind(localStorage);
+const nativeRemove=localStorage.removeItem.bind(localStorage);
 
 function readJson(key,fallback={}){try{return JSON.parse(localStorage.getItem(key)||'null')||fallback}catch{return fallback}}
+function writeJson(key,value){nativeSet(key,JSON.stringify(value))}
 function setStatus(text){const el=$('#cloudStatus');if(el)el.textContent=text}
-function config(){return readJson(CONFIG_KEY,{url:'https://xsslskkhxyavwvuxyelf.supabase.co',anonKey:''})}
+function safeName(name='asset'){return name.replace(/[^a-zA-Z0-9._-]+/g,'-').slice(-100)}
+function parseTime(value){const time=Date.parse(value||'');return Number.isFinite(time)?time:0}
+function localMeta(){return readJson(CLOUD_META_KEY,{localUpdatedAt:0,cloudUpdatedAt:0,deviceId:''})}
+function ensureDeviceId(){const meta=localMeta();if(!meta.deviceId){meta.deviceId=crypto.randomUUID();writeJson(CLOUD_META_KEY,meta)}return meta.deviceId}
+function markLocalChange(){if(suppressLocalTracking)return;const meta=localMeta();meta.localUpdatedAt=Date.now();meta.deviceId=meta.deviceId||crypto.randomUUID();writeJson(CLOUD_META_KEY,meta);localDirty=true;scheduleSave()}
+
+async function runtimeConfig(){try{const response=await fetch('/api/config',{cache:'no-store'});if(!response.ok)return null;const data=await response.json();return data?.ok&&data.url&&data.anonKey?{url:data.url,anonKey:data.anonKey}:null}catch(error){console.warn('Runtime cloud config unavailable',error);return null}}
+async function config(){const runtime=await runtimeConfig();const saved=readJson(CONFIG_KEY,{});const merged={url:runtime?.url||saved.url||'https://xsslskkhxyavwvuxyelf.supabase.co',anonKey:runtime?.anonKey||saved.anonKey||''};if(merged.url&&merged.anonKey)writeJson(CONFIG_KEY,merged);return merged}
 function cleanAuthUrl(){history.replaceState({},document.title,location.pathname)}
-function deviceId(){let id=localStorage.getItem(DEVICE_KEY);if(!id){id=crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;localStorage.setItem(DEVICE_KEY,id)}return id}
-function withTimeout(promise,label,ms=REQUEST_TIMEOUT_MS){let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(`${label} timed out.`)),ms)})]).finally(()=>clearTimeout(timer))}
-function isNewer(timestamp){return Boolean(timestamp&&(!lastRemoteUpdatedAt||new Date(timestamp)>new Date(lastRemoteUpdatedAt)))}
+function readAuthError(){const search=new URLSearchParams(location.search);const hash=new URLSearchParams(location.hash.replace(/^#/,'')||'');return search.get('error_description')||search.get('error')||hash.get('error_description')||hash.get('error')||''}
+
 function openMediaDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(MEDIA_DB,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(MEDIA_STORE)){const store=db.createObjectStore(MEDIA_STORE,{keyPath:'id'});store.createIndex('kind','kind')}};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
 async function allLocalMedia(){const db=await openMediaDB();return new Promise((resolve,reject)=>{const req=db.transaction(MEDIA_STORE).objectStore(MEDIA_STORE).getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error)})}
 async function putLocalMedia(item){const db=await openMediaDB();return new Promise((resolve,reject)=>{const tx=db.transaction(MEDIA_STORE,'readwrite');tx.objectStore(MEDIA_STORE).put(item);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
-function safeName(name='asset'){return name.replace(/[^a-zA-Z0-9._-]+/g,'-').slice(-100)}
-function workspacePath(){return `${session.user.id}/${PORTAL_KEY}/workspace.json`}
-function readAuthError(){const search=new URLSearchParams(location.search);const hash=new URLSearchParams(location.hash.replace(/^#/,'')||'');return search.get('error_description')||search.get('error')||hash.get('error_description')||hash.get('error')||''}
+async function deleteLocalMedia(id){const db=await openMediaDB();return new Promise((resolve,reject)=>{const tx=db.transaction(MEDIA_STORE,'readwrite');tx.objectStore(MEDIA_STORE).delete(id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
 
-async function consumeAuthCallback(){
-  if(!supabase)return false;
-  const authError=readAuthError();
-  if(authError){localStorage.removeItem(MAGIC_LINK_SENT_KEY);cleanAuthUrl();throw new Error(decodeURIComponent(authError.replace(/\+/g,' ')))}
-  const hash=new URLSearchParams(location.hash.replace(/^#/,'')||'');
-  const access_token=hash.get('access_token'),refresh_token=hash.get('refresh_token');
-  if(access_token&&refresh_token){const {data,error}=await supabase.auth.setSession({access_token,refresh_token});if(error)throw error;session=data.session;localStorage.removeItem(MAGIC_LINK_SENT_KEY);cleanAuthUrl();return Boolean(session)}
-  const code=new URLSearchParams(location.search).get('code');
-  if(code){const {data,error}=await supabase.auth.exchangeCodeForSession(code);if(error)throw error;session=data.session;localStorage.removeItem(MAGIC_LINK_SENT_KEY);cleanAuthUrl();return Boolean(session)}
-  return false;
-}
+async function consumeAuthCallback(){if(!supabase)return false;const authError=readAuthError();if(authError){nativeRemove(MAGIC_LINK_SENT_KEY);cleanAuthUrl();throw new Error(decodeURIComponent(authError.replace(/\+/g,' ')))}const hash=new URLSearchParams(location.hash.replace(/^#/,'')||'');const access_token=hash.get('access_token'),refresh_token=hash.get('refresh_token');if(access_token&&refresh_token){const {data,error}=await supabase.auth.setSession({access_token,refresh_token});if(error)throw error;session=data.session;nativeRemove(MAGIC_LINK_SENT_KEY);cleanAuthUrl();return Boolean(session)}const code=new URLSearchParams(location.search).get('code');if(code){const {data,error}=await supabase.auth.exchangeCodeForSession(code);if(error)throw error;session=data.session;nativeRemove(MAGIC_LINK_SENT_KEY);cleanAuthUrl();return Boolean(session)}return false}
 
-async function connectClient(){
-  const c=config();if(!c.url||!c.anonKey){setStatus('Cloud setup is incomplete.');return null}
-  if(authListener){authListener.unsubscribe();authListener=null}
-  if(realtimeChannel&&supabase){await supabase.removeChannel(realtimeChannel);realtimeChannel=null}
-  supabase=createClient(c.url,c.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,flowType:'implicit',storageKey:'harmonic-city-auth'}});
-  try{await consumeAuthCallback()}catch(error){console.error(error);setStatus(error.message.toLowerCase().includes('expired')?'That email link expired. Request one fresh link below.':`Sign-in failed: ${error.message}`)}
-  const {data,error}=await supabase.auth.getSession();if(error)console.error(error);session=data?.session||session||null;
-  const subscription=supabase.auth.onAuthStateChange((_event,next)=>{session=next;renderCloudState();if(session){startCrossDeviceSync();if(!initialSyncStarted)initialCloudSync()}else stopCrossDeviceSync()});
-  authListener=subscription.data.subscription;
-  renderCloudState();
-  if(session){startCrossDeviceSync();if(!initialSyncStarted)initialCloudSync()}
-  return supabase;
-}
+async function connectClient(){const c=await config();if(!c.url||!c.anonKey){setStatus('Cloud configuration is missing.');return null}if(authListener){authListener.unsubscribe();authListener=null}supabase=createClient(c.url,c.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,flowType:'implicit',storageKey:'harmonic-city-auth'}});try{await consumeAuthCallback()}catch(error){console.error(error);setStatus(error.message.toLowerCase().includes('expired')?'That email link expired. Use password sign-in or request one fresh link.':`Sign-in failed: ${error.message}`)}const {data,error}=await supabase.auth.getSession();if(error)console.error(error);session=data?.session||session||null;const subscription=supabase.auth.onAuthStateChange((_event,next)=>{session=next;renderCloudState();if(session&&!initialSyncStarted)initialCloudSync()});authListener=subscription.data.subscription;renderCloudState();if(session&&!initialSyncStarted)initialCloudSync();return supabase}
 
-function renderCloudState(){const btn=$('#cloudToggle');if(!btn)return;if(session){btn.textContent='☁ Cloud On';btn.classList.add('cloud-connected');setStatus(`Connected as ${session.user.email}`)}else{btn.textContent='☁ Connect Cloud';btn.classList.remove('cloud-connected');if(!cooldownRemaining()&&!readAuthError())setStatus('Sign in to load and save Harmonic City across devices.')}}
-function currentWorkspace(){return {version:WORKSPACE_VERSION,portalKey:PORTAL_KEY,updatedAt:new Date().toISOString(),deviceId:deviceId(),state:readJson(STATE_KEY,{}),layout:readJson(LAYOUT_KEY,{})}}
-async function uploadWorkspaceFile(workspace){const body=new Blob([JSON.stringify(workspace)],{type:'application/json'});const result=await withTimeout(supabase.storage.from(STORAGE_BUCKET).upload(workspacePath(),body,{contentType:'application/json',upsert:true,cacheControl:'no-cache'}),'Workspace upload');if(result.error)throw result.error;return {path:workspacePath(),size:body.size}}
-async function writeManifest(workspace,uploaded){const manifest={version:WORKSPACE_VERSION,workspace_path:uploaded.path,workspace_size:uploaded.size,updated_at:workspace.updatedAt,device_id:deviceId(),sync_complete:true};const {error}=await withTimeout(supabase.from('portal_settings').upsert({owner_id:session.user.id,portal_key:PORTAL_KEY,settings:manifest,updated_at:workspace.updatedAt},{onConflict:'owner_id,portal_key'}),'Workspace record');if(error)throw error}
+function renderCloudState(){const btn=$('#cloudToggle');if(!btn)return;if(session){btn.textContent=syncing?'☁ Syncing…':'☁ Cloud On';btn.classList.add('cloud-connected');if(!syncing)setStatus(`Connected as ${session.user.email}. Every change autosaves to every device.`)}else{btn.textContent='☁ Connect Cloud';btn.classList.remove('cloud-connected');if(!cooldownRemaining()&&!readAuthError())setStatus('Not connected. Sign in with your Harmonic Cloud account.')}}
+function workspacePayload(){return {state:readJson(STATE_KEY,{}),layout:readJson(LAYOUT_KEY,{}),client_updated_at:new Date().toISOString(),device_id:ensureDeviceId()}}
+async function fetchRemoteWorkspace(){if(!session)return null;const {data,error}=await supabase.from('portal_settings').select('settings,updated_at').eq('owner_id',session.user.id).eq('portal_key',PORTAL_KEY).maybeSingle();if(error)throw error;return data||null}
 
-async function saveWorkspace({includeMedia=false}={}){
-  if(!session){setStatus('Sign in to enable cloud saving.');return false}
-  if(syncing||applyingRemote)return false;
-  syncing=true;
-  try{
-    setStatus('Saving settings to cloud…');
-    const workspace=currentWorkspace();
-    const uploaded=await uploadWorkspaceFile(workspace);
-    await writeManifest(workspace,uploaded);
-    lastRemoteUpdatedAt=workspace.updatedAt;dirty=false;
-    setStatus(`Settings synced ${new Date().toLocaleTimeString()}`);
-    if(includeMedia)syncMediaInBackground();
-    return true;
-  }catch(error){console.error(error);setStatus(`Cloud save failed: ${error.message}`);return false}
-  finally{syncing=false}
-}
+async function applyRemoteWorkspace(remote,{reload=true}={}){if(!remote?.settings)return false;suppressLocalTracking=true;try{const settings=remote.settings;if(settings.state&&Object.keys(settings.state).length)nativeSet(STATE_KEY,JSON.stringify(settings.state));if(settings.layout&&Object.keys(settings.layout).length)nativeSet(LAYOUT_KEY,JSON.stringify(settings.layout));const cloudTime=parseTime(remote.updated_at||settings.client_updated_at);const meta=localMeta();meta.cloudUpdatedAt=cloudTime;meta.localUpdatedAt=cloudTime;meta.deviceId=meta.deviceId||ensureDeviceId();writeJson(CLOUD_META_KEY,meta);lastCloudUpdatedAt=cloudTime;localDirty=false;await reconcileMedia({preferRemote:true})}finally{suppressLocalTracking=false}if(reload){setStatus('A newer cloud update arrived. Refreshing this device…');setTimeout(()=>location.reload(),120)}return true}
 
-async function fetchRemoteRecord(){if(!session)return null;const {data,error}=await withTimeout(supabase.from('portal_settings').select('settings,updated_at').eq('owner_id',session.user.id).eq('portal_key',PORTAL_KEY).maybeSingle(),'Cloud lookup');if(error)throw error;return data||null}
-async function downloadWorkspaceFile(path){const {data,error}=await withTimeout(supabase.storage.from(STORAGE_BUCKET).download(path),'Workspace download');if(error)throw error;return JSON.parse(await data.text())}
-async function applyRemoteWorkspace(record,{reload=true}={}){
-  if(!record?.settings)return false;
-  const timestamp=record.updated_at||record.settings.updated_at;if(!isNewer(timestamp))return false;
-  applyingRemote=true;
-  try{
-    setStatus('Loading settings from cloud…');
-    let remote=record.settings;if(remote.workspace_path)remote=await downloadWorkspaceFile(remote.workspace_path);
-    if(remote.state)nativeSet(STATE_KEY,JSON.stringify(remote.state));
-    if(remote.layout)nativeSet(LAYOUT_KEY,JSON.stringify(remote.layout));
-    lastRemoteUpdatedAt=timestamp;dirty=false;
-    setStatus('Settings loaded from Harmonic Cloud');
-    if(reload){sessionStorage.setItem('harmonic-city-cloud-reloaded','1');location.reload()}
-    else syncMediaInBackground(true);
-    return true;
-  }finally{applyingRemote=false}
-}
-async function loadWorkspace(){const record=await fetchRemoteRecord();if(!record?.settings)return false;lastRemoteUpdatedAt='';return applyRemoteWorkspace(record,{reload:false})}
-async function checkRemoteUpdates(){if(!session||syncing||applyingRemote||document.hidden)return;try{const record=await fetchRemoteRecord();if(!record?.settings)return;const manifest=record.settings;if(manifest.device_id===deviceId())return;await applyRemoteWorkspace(record,{reload:true})}catch(error){console.warn('Cross-device check failed',error);setStatus(`Cross-device sync failed: ${error.message}`)}}
+async function saveWorkspace({force=false}={}){if(!session||syncing)return false;if(!force&&!localDirty)return true;syncing=true;renderCloudState();setStatus('Saving every change to Harmonic Cloud…');try{const settings=workspacePayload();const timestamp=new Date().toISOString();const {data,error}=await supabase.from('portal_settings').upsert({owner_id:session.user.id,portal_key:PORTAL_KEY,settings,updated_at:timestamp},{onConflict:'owner_id,portal_key'}).select('updated_at').single();if(error)throw error;await reconcileMedia({preferRemote:false});lastCloudUpdatedAt=parseTime(data?.updated_at||timestamp);const meta=localMeta();meta.cloudUpdatedAt=lastCloudUpdatedAt;meta.localUpdatedAt=lastCloudUpdatedAt;writeJson(CLOUD_META_KEY,meta);localDirty=false;setStatus(`Cloud saved ${new Date().toLocaleTimeString()}`);return true}catch(error){console.error(error);setStatus(`Cloud save failed: ${error.message}`);localDirty=true;return false}finally{syncing=false;renderCloudState()}}
 
-async function uploadMissingMedia(){const items=(await allLocalMedia()).filter(item=>item?.id&&item?.blob instanceof Blob&&item.blob.size>0);if(!items.length)return {uploaded:0,total:0};const {data:rows,error}=await supabase.from('portal_media').select('id').eq('owner_id',session.user.id).eq('portal_key',PORTAL_KEY);if(error)throw error;const existing=new Set((rows||[]).map(x=>x.id));const missing=items.filter(item=>!existing.has(item.id));let uploaded=0;for(const item of missing){const path=`${session.user.id}/${PORTAL_KEY}/${item.kind||'asset'}/${item.id}-${safeName(item.name)}`;const upload=await withTimeout(supabase.storage.from(STORAGE_BUCKET).upload(path,item.blob,{contentType:item.type||item.blob.type,upsert:true,cacheControl:'31536000'}),'Media upload',30000);if(upload.error)throw upload.error;const {error:rowError}=await supabase.from('portal_media').upsert({id:item.id,owner_id:session.user.id,portal_key:PORTAL_KEY,kind:item.kind||'asset',name:item.name||'asset',storage_path:path,mime_type:item.type||item.blob.type});if(rowError)throw rowError;uploaded++}return {uploaded,total:missing.length}}
-async function downloadMissingMedia(){const local=await allLocalMedia();const existing=new Set(local.map(x=>x.id));const {data,error}=await supabase.from('portal_media').select('*').eq('owner_id',session.user.id).eq('portal_key',PORTAL_KEY).order('created_at',{ascending:false});if(error)throw error;for(const row of (data||[]).filter(row=>!existing.has(row.id))){const {data:file,error:downloadError}=await withTimeout(supabase.storage.from(STORAGE_BUCKET).download(row.storage_path),'Media download',30000);if(downloadError)throw downloadError;await putLocalMedia({id:row.id,kind:row.kind,name:row.name,type:row.mime_type||file.type,blob:file,createdAt:new Date(row.created_at).getTime()})}}
-async function syncMediaInBackground(download=false){if(mediaSyncing||!session)return;mediaSyncing=true;setStatus(download?'Settings loaded • restoring media in background…':'Settings synced • media syncing in background…');try{if(download)await downloadMissingMedia();else await uploadMissingMedia();setStatus('Cloud fully synced')}catch(error){console.warn('Background media sync incomplete',error);setStatus(`Settings synced • media retry needed: ${error.message}`)}finally{mediaSyncing=false}}
+async function reconcileMedia({preferRemote=false}={}){if(!session)return;const local=await allLocalMedia();const localById=new Map(local.map(item=>[item.id,item]));const {data:rows,error}=await supabase.from('portal_media').select('*').eq('owner_id',session.user.id).eq('portal_key',PORTAL_KEY).order('created_at',{ascending:false});if(error)throw error;const remoteRows=rows||[];const remoteById=new Map(remoteRows.map(row=>[row.id,row]));const baseline=new Set(readJson(MEDIA_BASELINE_KEY,[]));if(preferRemote){for(const row of remoteRows){if(localById.has(row.id))continue;const {data:file,error:downloadError}=await supabase.storage.from('harmonic-city-media').download(row.storage_path);if(downloadError){console.warn(downloadError);continue}await putLocalMedia({id:row.id,kind:row.kind,name:row.name,type:row.mime_type||file.type,blob:file,createdAt:new Date(row.created_at).getTime()})}for(const localItem of local){if(baseline.size&&baseline.has(localItem.id)&&!remoteById.has(localItem.id))await deleteLocalMedia(localItem.id)}}else{for(const item of local){if(remoteById.has(item.id))continue;const path=`${session.user.id}/${item.kind}/${item.id}-${safeName(item.name)}`;const {error:uploadError}=await supabase.storage.from('harmonic-city-media').upload(path,item.blob,{contentType:item.type,upsert:true,cacheControl:'31536000'});if(uploadError)throw uploadError;const {error:rowError}=await supabase.from('portal_media').upsert({id:item.id,owner_id:session.user.id,portal_key:PORTAL_KEY,kind:item.kind,name:item.name,storage_path:path,mime_type:item.type});if(rowError)throw rowError;remoteById.set(item.id,{id:item.id,storage_path:path})}for(const id of baseline){if(localById.has(id)||!remoteById.has(id))continue;const row=remoteById.get(id);if(row?.storage_path)await supabase.storage.from('harmonic-city-media').remove([row.storage_path]);const {error:deleteError}=await supabase.from('portal_media').delete().eq('id',id).eq('owner_id',session.user.id);if(deleteError)throw deleteError;remoteById.delete(id)}}writeJson(MEDIA_BASELINE_KEY,[...remoteById.keys()])}
 
-function startCrossDeviceSync(){if(!supabase||!session||realtimeChannel)return;realtimeChannel=supabase.channel(`harmonic-city-${session.user.id}`).on('postgres_changes',{event:'*',schema:'public',table:'portal_settings',filter:`owner_id=eq.${session.user.id}`},payload=>{const record=payload.new;if(!record||record.portal_key!==PORTAL_KEY)return;const manifest=record.settings||{};if(manifest.device_id===deviceId())return;applyRemoteWorkspace(record,{reload:true}).catch(error=>{console.error(error);setStatus(`Cross-device sync failed: ${error.message}`)})}).subscribe(status=>{if(status==='SUBSCRIBED'&&!syncing)setStatus('Cloud connected • ready')})}
-function stopCrossDeviceSync(){if(realtimeChannel&&supabase)supabase.removeChannel(realtimeChannel);realtimeChannel=null}
-async function initialCloudSync(){if(initialSyncStarted||!session)return;initialSyncStarted=true;try{setStatus('Checking Harmonic Cloud…');const record=await fetchRemoteRecord();if(record?.settings){await applyRemoteWorkspace(record,{reload:false});if(!sessionStorage.getItem('harmonic-city-cloud-reloaded')){sessionStorage.setItem('harmonic-city-cloud-reloaded','1');location.reload();return}setStatus('Cloud connected • ready');syncMediaInBackground(true)}else{await saveWorkspace({includeMedia:true})}}catch(error){console.error(error);setStatus(`Cloud sync failed: ${error.message}`)}}
-function scheduleSave(delay=900){if(!session||applyingRemote)return;dirty=true;clearTimeout(syncTimer);syncTimer=setTimeout(()=>{if(dirty)saveWorkspace()},delay)}
-const nativeSet=localStorage.setItem.bind(localStorage);localStorage.setItem=(key,value)=>{nativeSet(key,value);if(key===STATE_KEY||key===LAYOUT_KEY)scheduleSave()};
+async function initialCloudSync(){if(initialSyncStarted||!session)return;initialSyncStarted=true;try{setStatus('Comparing this device with Harmonic Cloud…');const remote=await fetchRemoteWorkspace();const meta=localMeta();const localTime=Number(meta.localUpdatedAt||0);const remoteTime=parseTime(remote?.updated_at||remote?.settings?.client_updated_at);lastCloudUpdatedAt=remoteTime;if(!remote?.settings){localDirty=true;await saveWorkspace({force:true})}else if(localTime>remoteTime&&localTime>0){localDirty=true;await saveWorkspace({force:true})}else{await applyRemoteWorkspace(remote,{reload:false});if(!sessionStorage.getItem('harmonic-city-cloud-initialized')){sessionStorage.setItem('harmonic-city-cloud-initialized','1');setTimeout(()=>location.reload(),120);return}setStatus('Cloud workspace loaded. Autosave is active.')}startPolling()}catch(error){console.error(error);setStatus(`Cloud sync failed: ${error.message}`);initialSyncStarted=false}}
+
+async function pollCloud(){if(!session||polling||syncing||document.hidden)return;polling=true;try{if(localDirty){await saveWorkspace();return}const remote=await fetchRemoteWorkspace();const remoteTime=parseTime(remote?.updated_at||remote?.settings?.client_updated_at);if(remote?.settings&&remoteTime>lastCloudUpdatedAt+500)await applyRemoteWorkspace(remote,{reload:true})}catch(error){console.warn('Cloud poll failed',error)}finally{polling=false}}
+function startPolling(){clearInterval(pollTimer);pollTimer=setInterval(pollCloud,POLL_INTERVAL_MS)}
+function scheduleSave(){if(!session)return;clearTimeout(syncTimer);syncTimer=setTimeout(()=>saveWorkspace(),900)}
+
+localStorage.setItem=(key,value)=>{nativeSet(key,value);if(key===STATE_KEY||key===LAYOUT_KEY)markLocalChange()};
+localStorage.removeItem=(key)=>{nativeRemove(key);if(key===STATE_KEY||key===LAYOUT_KEY)markLocalChange()};
+
 function cooldownRemaining(){const raw=Number(localStorage.getItem(MAGIC_LINK_SENT_KEY)||0);if(!raw)return 0;let left=Math.max(0,Math.ceil((raw-Date.now())/1000));if(left>MAX_COOLDOWN_SECONDS){left=MAX_COOLDOWN_SECONDS;nativeSet(MAGIC_LINK_SENT_KEY,String(Date.now()+MAX_COOLDOWN_SECONDS*1000))}return left}
 function startCooldown(){nativeSet(MAGIC_LINK_SENT_KEY,String(Date.now()+MAX_COOLDOWN_SECONDS*1000));updateCooldownUI();clearInterval(cooldownTimer);cooldownTimer=setInterval(updateCooldownUI,1000)}
-function clearCooldown(){localStorage.removeItem(MAGIC_LINK_SENT_KEY);clearInterval(cooldownTimer);updateCooldownUI()}
-function updateCooldownUI(){const button=$('#cloudSendLink');if(!button)return;const left=cooldownRemaining();if(left>0){button.disabled=true;button.textContent=`Try again in ${left}s`}else{button.disabled=false;button.textContent='Email sign-in link';localStorage.removeItem(MAGIC_LINK_SENT_KEY);clearInterval(cooldownTimer)}}
-function bindUI(){const modal=$('#cloudModal'),toggle=$('#cloudToggle'),close=$('#cloudClose'),saveConfig=$('#cloudSaveConfig'),sendLink=$('#cloudSendLink'),signOut=$('#cloudSignOut');if(!modal||!toggle)return;const c=config();$('#cloudUrl').value=c.url;$('#cloudAnonKey').value=c.anonKey;toggle.onclick=()=>{modal.classList.add('open');renderCloudState();updateCooldownUI()};close.onclick=()=>modal.classList.remove('open');modal.addEventListener('click',e=>{if(e.target===modal)modal.classList.remove('open')});saveConfig.onclick=async()=>{localStorage.setItem(CONFIG_KEY,JSON.stringify({url:$('#cloudUrl').value.trim(),anonKey:$('#cloudAnonKey').value.trim()}));setStatus('Cloud configuration saved. Connecting…');initialSyncStarted=false;await connectClient()};sendLink.onclick=async()=>{if(cooldownRemaining())return;if(!supabase)await connectClient();if(!supabase){setStatus('Cloud setup is incomplete.');return}const email=$('#cloudEmail').value.trim();if(!email){setStatus('Enter your email address.');return}sendLink.disabled=true;setStatus('Requesting a fresh sign-in email…');const {error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:`${location.origin}${location.pathname}`,shouldCreateUser:true}});if(error){clearCooldown();sendLink.disabled=false;setStatus(/rate limit|too many/i.test(error.message)?'Email sign-in is temporarily rate-limited. Wait about a minute, then try once.':`Sign-in failed: ${error.message}`);return}startCooldown();setStatus('Fresh email sent. Open only the newest Harmonic City email.')};signOut.onclick=async()=>{stopCrossDeviceSync();if(supabase)await supabase.auth.signOut();session=null;initialSyncStarted=false;localStorage.removeItem(MAGIC_LINK_SENT_KEY);sessionStorage.removeItem('harmonic-city-cloud-reloaded');renderCloudState()};$('#cloudSyncNow').onclick=()=>saveWorkspace({includeMedia:true});updateCooldownUI()}
+function clearCooldown(){nativeRemove(MAGIC_LINK_SENT_KEY);clearInterval(cooldownTimer);updateCooldownUI()}
+function updateCooldownUI(){const button=$('#cloudSendLink');if(!button)return;const left=cooldownRemaining();if(left>0){button.disabled=true;button.textContent=`Try again in ${left}s`}else{button.disabled=false;button.textContent='Email sign-in link';nativeRemove(MAGIC_LINK_SENT_KEY);clearInterval(cooldownTimer)}}
 
-addEventListener('DOMContentLoaded',async()=>{bindUI();await connectClient();setInterval(checkRemoteUpdates,POLL_INTERVAL_MS);addEventListener('focus',checkRemoteUpdates);addEventListener('visibilitychange',()=>{if(!document.hidden)checkRemoteUpdates()});addEventListener('pagehide',()=>{if(session&&dirty)saveWorkspace()})});
+function bindUI(){const modal=$('#cloudModal'),toggle=$('#cloudToggle'),close=$('#cloudClose'),saveConfig=$('#cloudSaveConfig'),sendLink=$('#cloudSendLink'),signOut=$('#cloudSignOut');if(!modal||!toggle)return;config().then(c=>{$('#cloudUrl').value=c.url||'';$('#cloudAnonKey').value=c.anonKey||''});toggle.onclick=()=>{modal.classList.add('open');renderCloudState();updateCooldownUI()};close.onclick=()=>modal.classList.remove('open');modal.addEventListener('click',e=>{if(e.target===modal)modal.classList.remove('open')});saveConfig.onclick=async()=>{writeJson(CONFIG_KEY,{url:$('#cloudUrl').value.trim(),anonKey:$('#cloudAnonKey').value.trim()});setStatus('Cloud configuration saved. Connecting…');initialSyncStarted=false;await connectClient()};sendLink.onclick=async()=>{if(cooldownRemaining())return;if(!supabase)await connectClient();if(!supabase){setStatus('Cloud configuration is missing.');return}const email=$('#cloudEmail').value.trim();if(!email){setStatus('Enter your email address.');return}sendLink.disabled=true;setStatus('Requesting a fresh sign-in email…');const {error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:'https://harmonic-city.vercel.app',shouldCreateUser:true}});if(error){clearCooldown();sendLink.disabled=false;setStatus(`Sign-in failed: ${error.message}`);return}startCooldown();setStatus('Fresh email sent. Open only the newest Harmonic City email.')};signOut.onclick=async()=>{if(supabase)await supabase.auth.signOut();session=null;initialSyncStarted=false;localDirty=false;lastCloudUpdatedAt=0;nativeRemove(MAGIC_LINK_SENT_KEY);sessionStorage.removeItem('harmonic-city-cloud-initialized');clearInterval(pollTimer);renderCloudState()};$('#cloudSyncNow').onclick=async()=>{if(!session){setStatus('Sign in first.');return}localDirty=true;await saveWorkspace({force:true});await pollCloud()};updateCooldownUI()}
+
+addEventListener('DOMContentLoaded',async()=>{ensureDeviceId();bindUI();await connectClient();addEventListener('focus',pollCloud);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollCloud()});addEventListener('online',()=>{setStatus('Back online. Syncing…');localDirty?saveWorkspace():pollCloud()});addEventListener('pagehide',()=>{if(session&&localDirty)saveWorkspace({force:true})})});
