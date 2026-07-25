@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./core.css" />
   <link rel="stylesheet" href="./social-controls.css" />
+  <link rel="stylesheet" href="./orbit-label-controls.css" />
 </head>
 <body>
   <div id="backgroundStage" class="background-stage" aria-hidden="true"></div>
@@ -87,6 +88,19 @@
       <label>Orbit icon frame<select data-setting="orbitNodeStyle"><option value="framed">3D framed</option><option value="glass">Soft glass</option><option value="borderless">No border</option><option value="icon-only">Icon only</option></select></label>
     </div>
 
+    <div class="control-group orbit-label-panel">
+      <h4>Orbit Icon Text</h4>
+      <p class="control-note">Style the names underneath the floating world icons.</p>
+      <div class="two-column-controls">
+        <label>Typography<select id="orbitLabelFont"><option value="Inter">Inter</option><option value="Archivo Black">Archivo Black</option><option value="Playfair Display">Playfair Display</option></select></label>
+        <label>Text color<input id="orbitLabelColor" type="color"></label>
+        <label>Text size<input id="orbitLabelSize" type="range" min="9" max="26" step="1"></label>
+        <label>Font weight<select id="orbitLabelWeight"><option value="500">Medium</option><option value="700">Bold</option><option value="800">Extra Bold</option><option value="900">Black</option></select></label>
+        <label>Letter spacing<input id="orbitLabelSpacing" type="range" min="0" max="8" step="0.5"></label>
+        <label>Capitalization<select id="orbitLabelCase"><option value="uppercase">ALL CAPS</option><option value="none">As typed</option><option value="capitalize">Title Case</option></select></label>
+      </div>
+    </div>
+
     <div class="control-group color-grid">
       <label>Primary<input data-setting="primary" type="color"></label><label>Secondary<input data-setting="secondary" type="color"></label><label>Accent<input data-setting="accent" type="color"></label><label>Background<input data-setting="background" type="color"></label><label>Surface<input data-setting="surface" type="color"></label><label>Text<input data-setting="text" type="color"></label>
     </div>
@@ -112,5 +126,6 @@
 
   <template id="profileTemplate"><article class="profile-card"><div class="profile-art"></div><div class="profile-info"><p class="profile-eyebrow"></p><h3 class="profile-title"></h3><p class="profile-description"></p><div class="social-grid"></div></div></article></template>
   <script type="module" src="./app.js"></script>
+  <script src="./orbit-label-controls.js"></script>
 </body>
 </html>
