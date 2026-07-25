@@ -17,7 +17,20 @@ async function allLocalMedia(){const db=await openMediaDB();return new Promise((
 async function putLocalMedia(item){const db=await openMediaDB();return new Promise((resolve,reject)=>{const tx=db.transaction(MEDIA_STORE,'readwrite');tx.objectStore(MEDIA_STORE).put(item);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
 function safeName(name='asset'){return name.replace(/[^a-zA-Z0-9._-]+/g,'-').slice(-100)}
 
-async function connectClient(){const c=config();if(!c.url||!c.anonKey)return null;supabase=createClient(c.url,c.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});const {data}=await supabase.auth.getSession();session=data.session;supabase.auth.onAuthStateChange((_event,next)=>{session=next;renderCloudState();if(session)initialCloudSync()});renderCloudState();return supabase}
+async function consumeMagicLinkHash(){
+  if(!supabase||!location.hash.includes('access_token='))return false;
+  const p=new URLSearchParams(location.hash.slice(1));
+  const access_token=p.get('access_token');
+  const refresh_token=p.get('refresh_token');
+  if(!access_token||!refresh_token)return false;
+  const {data,error}=await supabase.auth.setSession({access_token,refresh_token});
+  if(error)throw error;
+  session=data.session;
+  history.replaceState({},document.title,location.pathname+location.search);
+  return true;
+}
+
+async function connectClient(){const c=config();if(!c.url||!c.anonKey)return null;supabase=createClient(c.url,c.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});try{await consumeMagicLinkHash()}catch(error){console.error(error);setStatus(`Sign-in failed: ${error.message}`)}const {data}=await supabase.auth.getSession();session=data.session;supabase.auth.onAuthStateChange((_event,next)=>{session=next;renderCloudState();if(session)initialCloudSync()});renderCloudState();if(session)initialCloudSync();return supabase}
 
 function renderCloudState(){const btn=$('#cloudToggle');if(!btn)return;if(session){btn.textContent='☁ Cloud On';btn.classList.add('cloud-connected');setStatus(`Connected as ${session.user.email}`)}else{btn.textContent='☁ Connect Cloud';btn.classList.remove('cloud-connected');setStatus('Not connected. Your work is still only on this browser.')}}
 
