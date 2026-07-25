@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="./core.css" />
   <link rel="stylesheet" href="./social-controls.css" />
   <link rel="stylesheet" href="./orbit-label-controls.css" />
+  <link rel="stylesheet" href="./media-quality.css" />
 </head>
 <body>
   <div id="backgroundStage" class="background-stage" aria-hidden="true"></div>
@@ -90,8 +91,10 @@
 
     <div class="control-group orbit-label-panel">
       <h4>Orbit Icon Text</h4>
-      <p class="control-note">Style the names underneath the floating world icons.</p>
+      <p class="control-note">Style, position, or completely hide the names underneath the floating world icons.</p>
       <div class="two-column-controls">
+        <label>Show lettering<select id="orbitLabelVisible"><option value="show">Show</option><option value="hide">Hide</option></select></label>
+        <label>Distance from icon<input id="orbitLabelGap" type="range" min="0" max="48" step="1"></label>
         <label>Typography<select id="orbitLabelFont"><option value="Inter">Inter</option><option value="Archivo Black">Archivo Black</option><option value="Playfair Display">Playfair Display</option></select></label>
         <label>Text color<input id="orbitLabelColor" type="color"></label>
         <label>Text size<input id="orbitLabelSize" type="range" min="9" max="26" step="1"></label>
@@ -99,6 +102,12 @@
         <label>Letter spacing<input id="orbitLabelSpacing" type="range" min="0" max="8" step="0.5"></label>
         <label>Capitalization<select id="orbitLabelCase"><option value="uppercase">ALL CAPS</option><option value="none">As typed</option><option value="capitalize">Title Case</option></select></label>
       </div>
+    </div>
+
+    <div class="control-group">
+      <h4>Media Quality</h4>
+      <p class="control-note">Keep uploaded artwork sharp and render it using its original source quality.</p>
+      <label>Rendering mode<select id="mediaQuality"><option value="balanced">Balanced</option><option value="high">High quality</option><option value="ultra">Ultra / 4K source</option></select></label>
     </div>
 
     <div class="control-group color-grid">
