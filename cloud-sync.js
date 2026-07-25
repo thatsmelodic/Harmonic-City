@@ -114,7 +114,7 @@ async function uploadCurrentDevice(){
   }
 }
 
-async function loadLatestCloudCopy({reload=true}={}){
+async function loadLatestCloudCopy(){
   if(!session||syncing)return false;
   syncing=true;
   render();
@@ -122,10 +122,19 @@ async function loadLatestCloudCopy({reload=true}={}){
   try{
     const remote=await fetchRemote();
     if(!remote?.settings){setStatus('No synced cloud version exists yet.');return false}
+
+    const nextState=remote.settings.state||{};
+    const nextLayout=remote.settings.layout||{};
+    const currentState=readJson(STATE_KEY,{});
+    const currentLayout=readJson(LAYOUT_KEY,{});
+    const changed=JSON.stringify(currentState)!==JSON.stringify(nextState)||JSON.stringify(currentLayout)!==JSON.stringify(nextLayout);
+
     suppressTracking=true;
     try{
-      if(remote.settings.state)nativeSet(STATE_KEY,JSON.stringify(remote.settings.state));
-      if(remote.settings.layout)nativeSet(LAYOUT_KEY,JSON.stringify(remote.settings.layout));
+      if(changed){
+        nativeSet(STATE_KEY,JSON.stringify(nextState));
+        nativeSet(LAYOUT_KEY,JSON.stringify(nextLayout));
+      }
       const cloudTime=parseTime(remote.updated_at||remote.settings.client_updated_at);
       lastCloudUpdatedAt=cloudTime;
       const value=meta();
@@ -134,8 +143,19 @@ async function loadLatestCloudCopy({reload=true}={}){
       writeJson(CLOUD_META_KEY,value);
       localDirty=false;
     }finally{suppressTracking=false}
-    if(reload){setStatus('Latest synced version loaded. Refreshing…');setTimeout(()=>location.reload(),250)}
-    else setStatus('Latest synced version loaded.');
+
+    if(changed){
+      const reloadKey=`harmonic-city-applied-${session.user.id}`;
+      const cloudStamp=String(lastCloudUpdatedAt);
+      if(sessionStorage.getItem(reloadKey)!==cloudStamp){
+        sessionStorage.setItem(reloadKey,cloudStamp);
+        setStatus('Latest synced version loaded. Refreshing once…');
+        setTimeout(()=>location.reload(),250);
+        return true;
+      }
+    }
+
+    setStatus('Latest synced version loaded.');
     return true;
   }catch(error){
     console.error('Cloud load failed',error);
@@ -183,10 +203,19 @@ async function connect(){
   if(session)await handleSession();
 }
 
+function simplifyActions(){
+  $('#cloudSendLink')?.remove();
+  $('#cloudLoadNow')?.remove();
+  $('#cloudSignOut')?.remove();
+  const syncButton=$('#cloudSyncNow');
+  if(syncButton)syncButton.textContent='Sync';
+}
+
 function bindUI(){
   const modal=$('#cloudModal');
   const toggle=$('#cloudToggle');
   if(!modal||!toggle)return;
+  simplifyActions();
   toggle.onclick=()=>modal.classList.add('open');
   $('#cloudClose').onclick=()=>modal.classList.remove('open');
   modal.addEventListener('click',event=>{if(event.target===modal)modal.classList.remove('open')});
@@ -202,7 +231,6 @@ function bindUI(){
   };
   const syncButton=$('#cloudSyncNow');
   if(syncButton){
-    syncButton.textContent='Sync';
     syncButton.onclick=async()=>{
       if(!session){setStatus('Sign in first.');return}
       const ok=confirm('Sync this device now? This will replace the cloud copy on every device.');
