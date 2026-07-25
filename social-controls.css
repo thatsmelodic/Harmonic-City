@@ -1,0 +1,16 @@
+.orbit-system[data-node-style="glass"] .world-node{border-color:rgba(255,255,255,.14);background:color-mix(in srgb,var(--surface) 38%,transparent);backdrop-filter:blur(14px);box-shadow:0 14px 38px rgba(0,0,0,.34),0 0 24px color-mix(in srgb,var(--primary) 18%,transparent)}
+.orbit-system[data-node-style="borderless"] .world-node{border-color:transparent;background:color-mix(in srgb,var(--surface) 54%,transparent);box-shadow:0 18px 44px rgba(0,0,0,.38),0 0 28px color-mix(in srgb,var(--primary) 24%,transparent)}
+.orbit-system[data-node-style="icon-only"] .world-node{border:0;background:transparent;box-shadow:none;backdrop-filter:none}
+.orbit-system[data-node-style="icon-only"] .world-node:hover{box-shadow:none;filter:brightness(1.35) drop-shadow(0 0 18px color-mix(in srgb,var(--primary) 78%,transparent))}
+.orbit-system[data-node-style="icon-only"] .world-icon{width:82%;height:82%}
+.custom-social-icon{width:100%;height:100%;object-fit:contain;display:block;filter:drop-shadow(0 0 10px color-mix(in srgb,var(--primary) 72%,transparent))}
+.social-icon:has(.custom-social-icon){padding:2px}
+.editor-subheading{margin:18px 0 9px;color:var(--accent);font-size:.74rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+.social-icon-editor{display:grid;gap:9px;margin-bottom:16px}
+.social-icon-row{display:grid;grid-template-columns:42px 1fr auto auto;align-items:center;gap:9px;padding:9px;border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(255,255,255,.025)}
+.social-icon-preview{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:#080808;color:var(--accent);font-size:1.25rem;overflow:hidden}
+.social-icon-preview .custom-social-icon{width:82%;height:82%}
+.social-icon-row strong{text-transform:capitalize;font-size:.76rem}
+.mini-upload,.mini-reset{display:inline-flex!important;align-items:center;justify-content:center;margin:0!important;padding:8px 9px!important;border-radius:10px!important;border:1px solid color-mix(in srgb,var(--primary) 38%,transparent)!important;background:color-mix(in srgb,var(--surface) 78%,transparent)!important;color:var(--text)!important;font-size:.68rem!important;font-weight:800!important;cursor:pointer}
+.mini-reset{font-family:inherit}
+@media(max-width:460px){.social-icon-row{grid-template-columns:38px 1fr}.mini-upload,.mini-reset{grid-row:2}.mini-upload{grid-column:1/2}.mini-reset{grid-column:2/3}}
