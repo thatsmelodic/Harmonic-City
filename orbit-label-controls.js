@@ -6,7 +6,10 @@
     orbitLabelSize: 11,
     orbitLabelWeight: '900',
     orbitLabelSpacing: 0.7,
-    orbitLabelCase: 'uppercase'
+    orbitLabelCase: 'uppercase',
+    orbitLabelVisible: 'show',
+    orbitLabelGap: 8,
+    mediaQuality: 'ultra'
   };
 
   const controls = {
@@ -15,7 +18,10 @@
     orbitLabelSize: document.getElementById('orbitLabelSize'),
     orbitLabelWeight: document.getElementById('orbitLabelWeight'),
     orbitLabelSpacing: document.getElementById('orbitLabelSpacing'),
-    orbitLabelCase: document.getElementById('orbitLabelCase')
+    orbitLabelCase: document.getElementById('orbitLabelCase'),
+    orbitLabelVisible: document.getElementById('orbitLabelVisible'),
+    orbitLabelGap: document.getElementById('orbitLabelGap'),
+    mediaQuality: document.getElementById('mediaQuality')
   };
 
   function readState() {
@@ -36,6 +42,9 @@
     root.style.setProperty('--orbit-label-weight', state.orbitLabelWeight);
     root.style.setProperty('--orbit-label-spacing', `${state.orbitLabelSpacing}px`);
     root.style.setProperty('--orbit-label-case', state.orbitLabelCase);
+    root.style.setProperty('--orbit-label-gap', `${state.orbitLabelGap}px`);
+    root.dataset.orbitLabels = state.orbitLabelVisible;
+    root.dataset.mediaQuality = state.mediaQuality;
 
     Object.entries(controls).forEach(([key, input]) => {
       if (input && document.activeElement !== input) input.value = state[key];
