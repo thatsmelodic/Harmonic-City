@@ -6,9 +6,11 @@ const CONFIG_KEY='harmonic-city-supabase-config-v1';
 const PORTAL_KEY='harmonic-city';
 const MEDIA_DB='harmonic-city-media';
 const MEDIA_STORE='assets';
+const STORAGE_BUCKET='harmonic-city-media';
+const WORKSPACE_VERSION=3;
 const MAGIC_LINK_SENT_KEY='harmonic-city-magic-link-sent-at';
 const MAX_COOLDOWN_SECONDS=60;
-let supabase=null,session=null,syncTimer=null,syncing=false,cooldownTimer=null,authListener=null,initialSyncStarted=false;
+let supabase=null,session=null,syncTimer=null,syncing=false,pendingSave=false,cooldownTimer=null,authListener=null,initialSyncStarted=false;
 const $=s=>document.querySelector(s);
 
 function readJson(key,fallback={}){try{return JSON.parse(localStorage.getItem(key)||'null')||fallback}catch{return fallback}}
@@ -19,6 +21,7 @@ function openMediaDB(){return new Promise((resolve,reject)=>{const req=indexedDB
 async function allLocalMedia(){const db=await openMediaDB();return new Promise((resolve,reject)=>{const req=db.transaction(MEDIA_STORE).objectStore(MEDIA_STORE).getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error)})}
 async function putLocalMedia(item){const db=await openMediaDB();return new Promise((resolve,reject)=>{const tx=db.transaction(MEDIA_STORE,'readwrite');tx.objectStore(MEDIA_STORE).put(item);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
 function safeName(name='asset'){return name.replace(/[^a-zA-Z0-9._-]+/g,'-').slice(-100)}
+function workspacePath(){return `${session.user.id}/${PORTAL_KEY}/workspace.json`}
 
 function readAuthError(){
   const search=new URLSearchParams(location.search);
@@ -59,7 +62,7 @@ async function consumeAuthCallback(){
 
 async function connectClient(){
   const c=config();
-  if(!c.url||!c.anonKey){setStatus('Add the Supabase anon key first.');return null}
+  if(!c.url||!c.anonKey){setStatus('Cloud setup is incomplete.');return null}
   if(authListener){authListener.unsubscribe();authListener=null}
   supabase=createClient(c.url,c.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,flowType:'implicit',storageKey:'harmonic-city-auth'}});
   try{await consumeAuthCallback()}catch(error){console.error(error);setStatus(error.message.toLowerCase().includes('expired')?'That email link expired. Request one fresh link below.':`Sign-in failed: ${error.message}`)}
@@ -80,19 +83,55 @@ async function connectClient(){
 function renderCloudState(){
   const btn=$('#cloudToggle');if(!btn)return;
   if(session){btn.textContent='☁ Cloud On';btn.classList.add('cloud-connected');setStatus(`Connected as ${session.user.email}`)}
-  else{btn.textContent='☁ Connect Cloud';btn.classList.remove('cloud-connected');if(!cooldownRemaining()&&!readAuthError())setStatus('Not connected. Request one sign-in email, then use only the newest link.')}
+  else{btn.textContent='☁ Connect Cloud';btn.classList.remove('cloud-connected');if(!cooldownRemaining()&&!readAuthError())setStatus('Sign in to load and save Harmonic City across devices.')}
+}
+
+function currentWorkspace(){
+  return {
+    version:WORKSPACE_VERSION,
+    portalKey:PORTAL_KEY,
+    updatedAt:new Date().toISOString(),
+    state:readJson(STATE_KEY,{}),
+    layout:readJson(LAYOUT_KEY,{})
+  };
+}
+
+async function uploadWorkspaceFile(workspace){
+  const body=new Blob([JSON.stringify(workspace)],{type:'application/json'});
+  const path=workspacePath();
+  const {error}=await supabase.storage.from(STORAGE_BUCKET).upload(path,body,{contentType:'application/json',upsert:true,cacheControl:'no-cache'});
+  if(error)throw error;
+  return {path,size:body.size};
 }
 
 async function saveWorkspace(){
-  if(!session||syncing){if(!session)setStatus('Sign in first, then press Sync now.');return}
+  if(!session){setStatus('Sign in to enable cloud saving.');return}
+  if(syncing){pendingSave=true;return}
   syncing=true;
+  pendingSave=false;
+  setStatus('Saving to Harmonic Cloud…');
   try{
-    const settings={state:readJson(STATE_KEY,{}),layout:readJson(LAYOUT_KEY,{})};
-    const {error}=await supabase.from('portal_settings').upsert({owner_id:session.user.id,portal_key:PORTAL_KEY,settings,updated_at:new Date().toISOString()},{onConflict:'owner_id,portal_key'});
-    if(error)throw error;
     await uploadMissingMedia();
-    setStatus(`Cloud saved ${new Date().toLocaleTimeString()}`)
-  }catch(error){console.error(error);setStatus(`Cloud save failed: ${error.message}`)}finally{syncing=false}
+    const workspace=currentWorkspace();
+    const uploaded=await uploadWorkspaceFile(workspace);
+    const manifest={version:WORKSPACE_VERSION,workspace_path:uploaded.path,workspace_size:uploaded.size,updated_at:workspace.updatedAt};
+    const {error}=await supabase.from('portal_settings').upsert({owner_id:session.user.id,portal_key:PORTAL_KEY,settings:manifest,updated_at:workspace.updatedAt},{onConflict:'owner_id,portal_key'});
+    if(error)throw error;
+    setStatus(`Saved to cloud ${new Date().toLocaleTimeString()}`);
+  }catch(error){
+    console.error(error);
+    setStatus(`Cloud save failed: ${error.message}`);
+  }finally{
+    syncing=false;
+    if(pendingSave)scheduleSave(250);
+  }
+}
+
+async function downloadWorkspaceFile(path){
+  const {data,error}=await supabase.storage.from(STORAGE_BUCKET).download(path);
+  if(error)throw error;
+  const text=await data.text();
+  return JSON.parse(text);
 }
 
 async function loadWorkspace(){
@@ -100,9 +139,12 @@ async function loadWorkspace(){
   const {data,error}=await supabase.from('portal_settings').select('settings,updated_at').eq('owner_id',session.user.id).eq('portal_key',PORTAL_KEY).maybeSingle();
   if(error)throw error;
   if(!data?.settings)return false;
-  const remote=data.settings;
-  if(remote.state&&Object.keys(remote.state).length)localStorage.setItem(STATE_KEY,JSON.stringify(remote.state));
-  if(remote.layout&&Object.keys(remote.layout).length)localStorage.setItem(LAYOUT_KEY,JSON.stringify(remote.layout));
+  let remote=data.settings;
+  if(remote.workspace_path){
+    remote=await downloadWorkspaceFile(remote.workspace_path);
+  }
+  if(remote.state&&Object.keys(remote.state).length)nativeSet(STATE_KEY,JSON.stringify(remote.state));
+  if(remote.layout&&Object.keys(remote.layout).length)nativeSet(LAYOUT_KEY,JSON.stringify(remote.layout));
   await downloadMissingMedia();
   return true;
 }
@@ -113,8 +155,8 @@ async function uploadMissingMedia(){
   const existing=new Set((rows||[]).map(x=>x.id));
   for(const item of items){
     if(existing.has(item.id))continue;
-    const path=`${session.user.id}/${item.kind}/${item.id}-${safeName(item.name)}`;
-    const {error:uploadError}=await supabase.storage.from('harmonic-city-media').upload(path,item.blob,{contentType:item.type,upsert:true,cacheControl:'31536000'});if(uploadError)throw uploadError;
+    const path=`${session.user.id}/${PORTAL_KEY}/${item.kind}/${item.id}-${safeName(item.name)}`;
+    const {error:uploadError}=await supabase.storage.from(STORAGE_BUCKET).upload(path,item.blob,{contentType:item.type,upsert:true,cacheControl:'31536000'});if(uploadError)throw uploadError;
     const {error:rowError}=await supabase.from('portal_media').upsert({id:item.id,owner_id:session.user.id,portal_key:PORTAL_KEY,kind:item.kind,name:item.name,storage_path:path,mime_type:item.type});if(rowError)throw rowError;
   }
 }
@@ -124,7 +166,7 @@ async function downloadMissingMedia(){
   const {data,error}=await supabase.from('portal_media').select('*').eq('owner_id',session.user.id).eq('portal_key',PORTAL_KEY).order('created_at',{ascending:false});if(error)throw error;
   for(const row of data||[]){
     if(existing.has(row.id))continue;
-    const {data:file,error:downloadError}=await supabase.storage.from('harmonic-city-media').download(row.storage_path);if(downloadError){console.warn(downloadError);continue}
+    const {data:file,error:downloadError}=await supabase.storage.from(STORAGE_BUCKET).download(row.storage_path);if(downloadError){console.warn(downloadError);continue}
     await putLocalMedia({id:row.id,kind:row.kind,name:row.name,type:row.mime_type||file.type,blob:file,createdAt:new Date(row.created_at).getTime()});
   }
 }
@@ -143,7 +185,7 @@ async function initialCloudSync(){
   }catch(error){console.error(error);setStatus(`Cloud sync failed: ${error.message}`)}
 }
 
-function scheduleSave(){if(!session)return;clearTimeout(syncTimer);syncTimer=setTimeout(saveWorkspace,900)}
+function scheduleSave(delay=900){if(!session)return;clearTimeout(syncTimer);syncTimer=setTimeout(saveWorkspace,delay)}
 const nativeSet=localStorage.setItem.bind(localStorage);localStorage.setItem=(key,value)=>{nativeSet(key,value);if(key===STATE_KEY||key===LAYOUT_KEY)scheduleSave()};
 function cooldownRemaining(){const raw=Number(localStorage.getItem(MAGIC_LINK_SENT_KEY)||0);if(!raw)return 0;let left=Math.max(0,Math.ceil((raw-Date.now())/1000));if(left>MAX_COOLDOWN_SECONDS){left=MAX_COOLDOWN_SECONDS;nativeSet(MAGIC_LINK_SENT_KEY,String(Date.now()+MAX_COOLDOWN_SECONDS*1000))}return left}
 function startCooldown(){nativeSet(MAGIC_LINK_SENT_KEY,String(Date.now()+MAX_COOLDOWN_SECONDS*1000));updateCooldownUI();clearInterval(cooldownTimer);cooldownTimer=setInterval(updateCooldownUI,1000)}
@@ -161,7 +203,7 @@ function bindUI(){
   sendLink.onclick=async()=>{
     if(cooldownRemaining())return;
     if(!supabase)await connectClient();
-    if(!supabase){setStatus('Add the Supabase anon key first.');return}
+    if(!supabase){setStatus('Cloud setup is incomplete.');return}
     const email=$('#cloudEmail').value.trim();if(!email){setStatus('Enter your email address.');return}
     sendLink.disabled=true;setStatus('Requesting a fresh sign-in email…');
     const {error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:`${location.origin}${location.pathname}`,shouldCreateUser:true}});
@@ -169,7 +211,7 @@ function bindUI(){
       clearCooldown();
       sendLink.disabled=false;
       const rateLimited=/rate limit|too many/i.test(error.message);
-      setStatus(rateLimited?'Supabase is still rate-limiting email. Wait about a minute, then try once.':`Sign-in failed: ${error.message}`);
+      setStatus(rateLimited?'Email sign-in is temporarily rate-limited. Wait about a minute, then try once.':`Sign-in failed: ${error.message}`);
       return;
     }
     startCooldown();
