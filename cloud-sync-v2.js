@@ -15,6 +15,7 @@ const $ = selector => document.querySelector(selector);
 const nativeSet = localStorage.setItem.bind(localStorage);
 const nativeRemove = localStorage.removeItem.bind(localStorage);
 let client;
+let cloudConfig;
 let session;
 let pollTimer;
 let busy = false;
@@ -103,13 +104,41 @@ async function uploadAssets(state) {
   }
   return assets;
 }
+async function downloadWithProgress(bucket, path, onProgress) {
+  const base = cloudConfig.url.replace(/\/$/, '');
+  const endpoint = `${base}/storage/v1/object/${encodeURIComponent(bucket)}/${path.split('/').map(encodeURIComponent).join('/')}`;
+  const response = await fetch(endpoint, {
+    headers: { Authorization: `Bearer ${session.access_token}`, apikey: cloudConfig.anonKey }
+  });
+  if (!response.ok || !response.body) throw new Error(`Download failed (HTTP ${response.status}).`);
+  const total = Number(response.headers.get('content-length')) || 0;
+  const type = response.headers.get('content-type') || 'application/octet-stream';
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    if (total) onProgress(received, total);
+  }
+  return new Blob(chunks, { type });
+}
 async function restoreAssets(assets = {}) {
-  for (const [kind, asset] of Object.entries(assets)) {
-    if (!MEDIA_KINDS.includes(kind) || !asset?.id || !asset?.path) continue;
+  const entries = Object.entries(assets).filter(([kind, asset]) => MEDIA_KINDS.includes(kind) && asset?.id && asset?.path);
+  let index = 0;
+  for (const [kind, asset] of entries) {
+    index += 1;
     const existing = await mediaGet(asset.id);
     if (existing?.blob && existing.cloudPath === asset.path) continue;
-    const { data, error } = await client.storage.from(asset.bucket || BUCKET).download(asset.path);
-    if (error) throw error;
+    let lastPercent = -1;
+    const data = await downloadWithProgress(asset.bucket || BUCKET, asset.path, (received, total) => {
+      const percent = Math.round((received / total) * 100);
+      if (percent === lastPercent) return;
+      lastPercent = percent;
+      setStatus(`Downloading ${kind} (${index}/${entries.length})… ${percent}%`);
+    });
     await mediaPut({ id: asset.id, kind, name: asset.name, type: asset.type || data.type, blob: data, createdAt: asset.createdAt || Date.now(), cloudPath: asset.path });
   }
 }
@@ -120,7 +149,12 @@ async function applyRemote(remote) {
     suppressDirty = true;
     nativeSet(STATE_KEY, JSON.stringify(remote.settings.state || {}));
     nativeSet(LAYOUT_KEY, JSON.stringify(remote.settings.layout || {}));
-    await restoreAssets(remote.settings.assets || {});
+    try {
+      await restoreAssets(remote.settings.assets || {});
+    } catch (error) {
+      setStatus(`Cloud settings loaded, but media download failed: ${error.message}. Choose "Use cloud copy" again to retry.`);
+      return false;
+    }
     lastCloudTime = parseTime(remote.updated_at || remote.settings.client_updated_at);
     const value = meta(); value.lastCloudTime = lastCloudTime; writeJson(META_KEY, value);
     localDirty = false; awaitingDecision = false; pendingRemote = null;
@@ -140,6 +174,7 @@ async function uploadLocal() {
     const { data, error } = await client.from('portal_settings').upsert({ owner_id: session.user.id, portal_key: PORTAL_KEY, settings, updated_at: timestamp }, { onConflict: 'owner_id,portal_key' }).select('updated_at').single();
     if (error) throw error;
     lastCloudTime = parseTime(data?.updated_at || timestamp);
+    const value = meta(); value.lastCloudTime = lastCloudTime; writeJson(META_KEY, value);
     localDirty = false; awaitingDecision = false; pendingRemote = null;
     setStatus('This device is now saved to Harmonic Cloud.');
     return true;
@@ -147,9 +182,25 @@ async function uploadLocal() {
   finally { busy = false; render(); }
 }
 async function establishFirstSync() {
+  const persistedTime = meta().lastCloudTime || 0;
   const remote = await fetchRemote();
   const localExists = hasMeaningfulData(readJson(STATE_KEY, {})) || hasMeaningfulData(readJson(LAYOUT_KEY, {}));
   const cloudExists = Boolean(remote?.settings);
+  const remoteTime = parseTime(remote?.updated_at || remote?.settings?.client_updated_at);
+
+  // Already applied this exact cloud version on this device (e.g. right after a
+  // reload from applyRemote(), or after uploadLocal() made this device the cloud
+  // version) -- don't re-ask the user to choose between two copies that already match.
+  if (cloudExists && remoteTime > 0 && remoteTime === persistedTime) {
+    lastCloudTime = remoteTime;
+    pendingRemote = null;
+    awaitingDecision = false;
+    setStatus(`Cloud is up to date (${new Date(remoteTime).toLocaleString()}).`);
+    render();
+    return;
+  }
+
+  lastCloudTime = persistedTime;
   pendingRemote = remote;
   awaitingDecision = localExists || cloudExists;
   if (localExists && cloudExists) setStatus('Local and cloud versions both exist. Choose which one to use.');
@@ -171,6 +222,7 @@ async function connect() {
   try {
     const result = await getSupabaseClient();
     client = result.client;
+    cloudConfig = result.config;
     const fields = $('#cloudConfigFields');
     if (fields) fields.hidden = result.config.source === 'runtime';
     const { data } = await client.auth.getSession();

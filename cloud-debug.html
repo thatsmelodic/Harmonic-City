@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Harmonic Cloud — Diagnostics</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: ui-monospace, Menlo, Consolas, monospace; background: #0f1115; color: #e6e8eb; margin: 0; padding: 2rem; line-height: 1.5; }
+  h1 { font-size: 1.1rem; text-transform: uppercase; letter-spacing: 0.08em; color: #9aa4b2; margin-bottom: 1.5rem; }
+  section { max-width: 640px; margin: 0 auto 1.75rem; padding: 1rem 1.25rem; border: 1px solid #262b33; border-radius: 8px; background: #14171d; }
+  h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: #7d8794; margin: 0 0 0.75rem; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0; }
+  dt { color: #7d8794; }
+  dd { margin: 0; word-break: break-all; }
+  .warn { color: #f2b84b; }
+  .ok { color: #4bd18a; }
+  .err { color: #ff6b6b; }
+  pre { white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; margin: 0; }
+  .hint { font-size: 0.8rem; color: #7d8794; margin-top: 1.5rem; text-align: center; }
+</style>
+</head>
+<body>
+  <div style="max-width:640px;margin:0 auto;">
+    <h1>Harmonic Cloud — effective config for this environment</h1>
+  </div>
+
+  <section>
+    <h2>Raw /api/config response</h2>
+    <dl>
+      <dt>HTTP status</dt><dd id="rawStatus">—</dd>
+      <dt>URL returned</dt><dd id="rawUrl">—</dd>
+      <dt>Anon key (masked)</dt><dd id="rawKey">—</dd>
+      <dt>Error</dt><dd id="rawError">—</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Effective config (after fallback chain)</h2>
+    <dl>
+      <dt>Source</dt><dd id="effectiveSource">—</dd>
+      <dt>Supabase URL</dt><dd id="effectiveUrl">—</dd>
+      <dt>Anon key (masked)</dt><dd id="effectiveKey">—</dd>
+      <dt>Error</dt><dd id="effectiveError">—</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Auth session</h2>
+    <dl>
+      <dt>State</dt><dd id="authState">—</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Local cloud-sync status</h2>
+    <pre id="cloudStatus">(window.HarmonicCloud not available yet)</pre>
+  </section>
+
+  <section>
+    <h2>Environment</h2>
+    <dl>
+      <dt>Host</dt><dd id="hostInfo">—</dd>
+      <dt>Checked at</dt><dd id="timestamp">—</dd>
+    </dl>
+  </section>
+
+  <p class="hint">
+    Compare this page across Vercel, local Docker, and any other deployment.<br>
+    The "Source" and "Anon key" fields should be identical everywhere sync is expected to work.<br>
+    This page never reveals a full secret — only the first 8 characters are shown.
+  </p>
+
+  <script type="module">
+    import { getRuntimeConfig, getSupabaseClient } from './supabase-client.js';
+
+    function maskKey(key) {
+      if (!key) return '(not set)';
+      const visible = key.slice(0, 8);
+      const maskedLength = Math.max(key.length - 8, 6);
+      return `${visible}${'•'.repeat(maskedLength)} (${key.length} chars total)`;
+    }
+
+    function setText(id, value, cls) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = value;
+      if (cls) el.className = cls;
+    }
+
+    async function run() {
+      let raw;
+      try {
+        const response = await fetch('/api/config', { cache: 'no-store' });
+        const body = await response.json().catch(() => null);
+        raw = { status: response.status, ok: response.ok, body };
+      } catch (error) {
+        raw = { status: 0, ok: false, error: error.message };
+      }
+
+      setText('rawStatus', `HTTP ${raw.status}${raw.ok ? ' OK' : ' (failed)'}`, raw.ok ? 'ok' : 'err');
+      setText('rawUrl', raw.body?.url || '(none returned)');
+      setText('rawKey', maskKey(raw.body?.anonKey));
+      setText('rawError', raw.body?.error || raw.error || '—');
+
+      try {
+        const config = await getRuntimeConfig();
+        setText('effectiveSource', config.source, config.source === 'runtime' ? 'ok' : 'warn');
+        setText('effectiveUrl', config.url);
+        setText('effectiveKey', maskKey(config.anonKey));
+        setText('effectiveError', '—');
+      } catch (error) {
+        setText('effectiveSource', 'unresolved', 'err');
+        setText('effectiveUrl', '—');
+        setText('effectiveKey', '—');
+        setText('effectiveError', error.message, 'err');
+      }
+
+      try {
+        const { client } = await getSupabaseClient();
+        const { data } = await client.auth.getSession();
+        setText('authState', data?.session ? `Signed in as ${data.session.user.email} (uid ${data.session.user.id.slice(0, 8)}…)` : 'Not signed in');
+      } catch (error) {
+        setText('authState', `Unavailable: ${error.message}`, 'err');
+      }
+
+      const status = window.HarmonicCloud?.getStatus?.();
+      setText('cloudStatus', status ? JSON.stringify(status, null, 2) : '(window.HarmonicCloud not present — cloud-sync-v2.js did not load)');
+
+      setText('hostInfo', `${location.protocol}//${location.host}`);
+      setText('timestamp', new Date().toISOString());
+    }
+
+    document.addEventListener('DOMContentLoaded', run);
+  </script>
+</body>
+</html>
