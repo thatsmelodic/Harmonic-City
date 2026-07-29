@@ -1,14 +1,31 @@
 const KEY='harmonic-city-state-v2';
 const LEGACY_KEY='harmonic-city-state-v1';
+const SYNC_META_KEY='harmonic-city-public-sync-v1';
 const DB_NAME='harmonic-city-media';
 const STORE='assets';
+// Captured before cloud-sync-v2.js monkeypatches localStorage.setItem (to flag local
+// edits as "dirty"/pending-cloud-upload). Live-sync writes below are pulling FROM the
+// public source, not a local edit awaiting upload, so they must bypass that tracking.
+const rawLocalStorageSet=localStorage.setItem.bind(localStorage);
+
+// Public, permanent home for the owner's real branding media (background/intro/core/audio).
+// This is his own Supabase project's public storage bucket -- not a third-party CDN -- used
+// as a fallback for any visitor whose browser has no locally-synced media in IndexedDB yet.
+// See scripts/diagnostic.mjs and README for how to refresh these paths after a re-upload.
+const DEFAULT_MEDIA_BASE='https://xsslskkhxyavwvuxyelf.supabase.co/storage/v1/object/public/harmonic-city-media/b7387b68-4169-4c9b-a4cc-64d576cdeca8/harmonic-city';
+const defaultMedia={
+  background:{url:`${DEFAULT_MEDIA_BASE}/background/33eb1859-6fef-4afe-864c-1107b4192a8d-Animated-loop.mp4`,type:'video/mp4'},
+  intro:{url:`${DEFAULT_MEDIA_BASE}/intro/17b08f2a-1a03-4756-ab55-87fafe641211-Tv-loop.mp4`,type:'video/mp4'},
+  core:{url:`${DEFAULT_MEDIA_BASE}/core/6a68cfd1-255c-4c99-ba09-1047f9dd67a5-Loop-Glow-GIF-by-xponentialdesign.gif`,type:'image/gif'},
+  audio:{url:`${DEFAULT_MEDIA_BASE}/audio/3c300a37-dddc-4c59-97af-b2a156cd5107-Is-it-worth-it_3.wav`,type:'audio/wav'}
+};
 
 const defaults={
-  portalTitle:'Harmonic City',heroTitle:'Harmonic City',heroEyebrow:'WELCOME TO YOUR UNIVERSE',heroDescription:'Hoopz, food, fashion, and every world connected to Melodic. Choose your melody.',introTitle:'Harmonic City',introKicker:'WELCOME TO',headlineFont:'Archivo Black',bodyFont:'Inter',heroTextSize:92,profileTitleSize:72,bodyTextSize:17,iconScale:100,orbitSpeed:26,volume:.7,heroLayout:'split',profileLayout:'split',socialStyle:'icon-label',orbitNodeStyle:'framed',primary:'#d8b67a',secondary:'#8e6840',accent:'#f7e7bd',background:'#0b0806',surface:'#1a120d',text:'#fff8e9',activeWorld:'thatsmelodic',backgroundMediaId:null,introMediaId:null,audioMediaId:null,coreMediaId:null,coreSize:190,coreShape:'sphere',coreFallback:'∞',
+  portalTitle:'Harmonic City',heroTitle:'Harmonic City',heroEyebrow:'WELCOME TO the UNIVERSE',heroDescription:'Hoopz, food, fashion, and every world sowed to Melodic. Choose your melody.',introTitle:'Harmonic City',introKicker:'WELCOME TO',headlineFont:'Playfair Display',bodyFont:'Playfair Display',heroTextSize:82,profileTitleSize:54,bodyTextSize:16,iconScale:125,orbitSpeed:12,volume:.2,heroLayout:'split',profileLayout:'reverse',socialStyle:'icon-label',orbitNodeStyle:'icon-only',primary:'#a54cff',secondary:'#5520a8',accent:'#ff57dc',background:'#06020a',surface:'#160920',text:'#fbf5ff',activeWorld:'thatsmelodic',backgroundMediaId:null,introMediaId:null,audioMediaId:null,coreMediaId:null,coreSize:200,coreShape:'circle',coreFallback:'∞',
   worlds:[
-    {id:'thatsmelodic',name:'thatsmelodic',eyebrow:'PERSONAL PAGE / MAIN HUB',description:'Music, personality, basketball, behind-the-scenes content, announcements, and the bridge connecting every brand.',emoji:'🎵',socialIcons:{},socials:{youtube:'https://www.youtube.com/@thatsmelodic',instagram:'https://www.instagram.com/thatsmelodic',tiktok:'https://www.tiktok.com/@thatsmelodic',facebook:'https://www.facebook.com/share/1G8drmZJ7s/'}},
-    {id:'schmakinn',name:'Schmakinn',eyebrow:'EATING CHANNEL',description:'Food reviews, mukbangs, challenges, honest reactions, and meals that are actually schmackin.',emoji:'🍔',socialIcons:{},socials:{youtube:'https://youtube.com/@schmackinn',instagram:'https://www.instagram.com/schmakinn',tiktok:'https://www.tiktok.com/@schmackinn',facebook:'https://www.facebook.com/share/1H9x4fD9zo/'}},
-    {id:'2harmonic',name:'2Harmonic',eyebrow:'CLOTHING LINE',description:'Stitched Melodies—fashion built around harmony, expression, duality, and the messages that keep people moving.',emoji:'👕',socialIcons:{},socials:{youtube:'https://youtube.com/@2harmonic',instagram:'https://www.instagram.com/2harmonic',facebook:'https://www.facebook.com/share/183jemgJ89/',website:'https://twoharmonic.com'}}
+    {id:'thatsmelodic',name:'thatsmelodic',eyebrow:'PERSONAL PAGE',description:'Music, personality, basketball, announcements, & BTS. The Melody that Stitches it all together.',emoji:'🎵',customIcon:'./defaults/icons/thatsmelodic.png',socialIcons:{},socials:{youtube:'https://www.youtube.com/@thatsmelodic',instagram:'https://www.instagram.com/thatsmelodic',tiktok:'https://www.tiktok.com/@thatsmelodic',facebook:'https://www.facebook.com/share/1G8drmZJ7s/'}},
+    {id:'schmakinn',name:'Schmakinn',eyebrow:'EATING CHANNEL',description:'Food reviews, mukbangs, challenges, honest reactions, and meals that are actually schmackin.',emoji:'🍔',customIcon:'./defaults/icons/schmakinn.png',socialIcons:{},socials:{youtube:'https://youtube.com/@schmackinn',instagram:'https://www.instagram.com/schmakinn',tiktok:'https://www.tiktok.com/@schmackinn',facebook:'https://www.facebook.com/share/1H9x4fD9zo/'}},
+    {id:'2harmonic',name:'2Harmonic',eyebrow:'CLOTHING LINE',description:'Stitched Melodies—fashion built around harmony, expression, duality, and the messages that keep people moving.',emoji:'👕',customIcon:'./defaults/icons/2harmonic.png',socialIcons:{},socials:{youtube:'https://youtube.com/@2harmonic',instagram:'https://www.instagram.com/2harmonic',facebook:'https://www.facebook.com/share/183jemgJ89/',website:'https://twoharmonic.com'}}
   ]
 };
 
@@ -26,7 +43,7 @@ async function dbDelete(id){const db=await openDB();return new Promise((res,rej)
 async function dbAll(){const db=await openDB();return new Promise((res,rej)=>{const req=db.transaction(STORE).objectStore(STORE).getAll();req.onsuccess=()=>res(req.result||[]);req.onerror=()=>rej(req.error)})}
 
 function save(){clearTimeout(saveTimer);$('#saveStatus').textContent='Saving…';saveTimer=setTimeout(()=>{try{localStorage.setItem(KEY,JSON.stringify(state));$('#saveStatus').textContent='Saved automatically'}catch(e){$('#saveStatus').textContent='Icon file too large to save';console.error(e)}},150)}
-function media(kind,id){return library[kind].find(x=>x.id===id)}
+function media(kind,id){return library[kind].find(x=>x.id===id)||defaultMedia[kind]}
 function mediaUrl(item){if(!item)return'';if(!item.url)item.url=URL.createObjectURL(item.blob);return item.url}
 function element(item){const e=document.createElement(item.type.startsWith('video/')?'video':'img');e.src=mediaUrl(item);if(e.tagName==='VIDEO'){e.autoplay=e.loop=e.muted=e.playsInline=true;e.setAttribute('playsinline','')}else e.alt='';return e}
 
@@ -54,4 +71,26 @@ $$('[data-setting]').forEach(i=>i.oninput=()=>{state[i.dataset.setting]=i.type==
 $('#openCustomizer').onclick=()=>$('#customizer').classList.add('open');$('#closeCustomizer').onclick=()=>$('#customizer').classList.remove('open');$('#enterPortal').onclick=()=>$('#introScreen').classList.add('hidden');$('#audioToggle').onclick=toggleAudio;
 setupDrop('#coreDrop','#coreInput','core');setupDrop('#backgroundDrop','#backgroundInput','background');setupDrop('#introDrop','#introInput','intro');setupDrop('#audioDrop','#audioInput','audio');
 
-(async function init(){try{const items=await dbAll();library={background:items.filter(x=>x.kind==='background').sort((a,b)=>b.createdAt-a.createdAt),intro:items.filter(x=>x.kind==='intro').sort((a,b)=>b.createdAt-a.createdAt),audio:items.filter(x=>x.kind==='audio').sort((a,b)=>b.createdAt-a.createdAt),core:items.filter(x=>x.kind==='core').sort((a,b)=>b.createdAt-a.createdAt)}}catch(e){console.error('Media library unavailable',e)}render();if(state.audioMediaId)loadAudio();save()})();
+async function fetchPublicDefaults(){
+  try{
+    const res=await fetch('/api/public-portal',{cache:'no-store'});
+    if(!res.ok)return;
+    const data=await res.json();
+    if(!data?.ok||!data.settings)return;
+    const rawKey=localStorage.getItem(KEY);
+    let syncMeta=null;try{syncMeta=JSON.parse(localStorage.getItem(SYNC_META_KEY)||'null')}catch{}
+    const hasRealLocalEdit=rawKey!==null&&!syncMeta;
+    if(hasRealLocalEdit)return; // a person edited this device locally -- never overwrite that
+    if(syncMeta?.updatedAt&&syncMeta.updatedAt===data.updatedAt)return; // already current
+
+    state=mergeDefaults(data.settings.state||{});
+    Object.entries(data.settings.assets||{}).forEach(([kind,asset])=>{
+      if(asset?.publicUrl)defaultMedia[kind]={url:asset.publicUrl,type:asset.type||defaultMedia[kind]?.type};
+    });
+    rawLocalStorageSet(KEY,JSON.stringify(state));
+    rawLocalStorageSet(SYNC_META_KEY,JSON.stringify({updatedAt:data.updatedAt||null}));
+    render();loadAudio();
+  }catch(e){console.warn('[Harmonic City] Live public defaults unavailable, using baked-in defaults.',e)}
+}
+
+(async function init(){try{const items=await dbAll();library={background:items.filter(x=>x.kind==='background').sort((a,b)=>b.createdAt-a.createdAt),intro:items.filter(x=>x.kind==='intro').sort((a,b)=>b.createdAt-a.createdAt),audio:items.filter(x=>x.kind==='audio').sort((a,b)=>b.createdAt-a.createdAt),core:items.filter(x=>x.kind==='core').sort((a,b)=>b.createdAt-a.createdAt)}}catch(e){console.error('Media library unavailable',e)}render();loadAudio();if(localStorage.getItem(KEY)!==null||localStorage.getItem(LEGACY_KEY)!==null)save();fetchPublicDefaults()})();
