@@ -1,72 +1,102 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSupabaseClient } from './supabase-client.js';
 
-const CONFIG_KEY='harmonic-city-supabase-config-v1';
-const $=s=>document.querySelector(s);
+const $ = selector => document.querySelector(selector);
+function setStatus(message) { if ($('#cloudStatus')) $('#cloudStatus').textContent = message; }
 
-function readConfig(){try{return JSON.parse(localStorage.getItem(CONFIG_KEY)||'{}')}catch{return{}}}
-function setStatus(text){const el=$('#cloudStatus');if(el)el.textContent=text}
-async function resolvedConfig(){
-  try{
-    const response=await fetch('/api/config',{cache:'no-store'});
-    if(response.ok){
-      const data=await response.json();
-      if(data?.ok&&data.url&&data.anonKey){
-        const config={url:data.url,anonKey:data.anonKey};
-        localStorage.setItem(CONFIG_KEY,JSON.stringify(config));
-        return config;
-      }
-    }
-  }catch(error){console.warn('Runtime config unavailable',error)}
-  return readConfig();
-}
+function ensureAuthUi() {
+  const email = $('#cloudEmail');
+  const actions = document.querySelector('.cloud-actions');
+  if (!email || !actions) return;
 
-function ensurePasswordUI(){
-  const email=$('#cloudEmail');
-  const actions=document.querySelector('.cloud-actions');
-  if(!email||!actions||$('#cloudPassword'))return;
+  $('#cloudSendLink')?.remove();
 
-  const label=document.createElement('label');
-  label.textContent='Password';
-  const input=document.createElement('input');
-  input.id='cloudPassword';
-  input.type='password';
-  input.autocomplete='current-password';
-  input.placeholder='Enter your Harmonic Cloud password';
-  label.appendChild(input);
-  email.closest('label')?.insertAdjacentElement('afterend',label);
+  let password = $('#cloudPassword');
+  if (!password) {
+    const label = document.createElement('label');
+    label.textContent = 'Password';
+    password = document.createElement('input');
+    password.id = 'cloudPassword';
+    password.type = 'password';
+    password.autocomplete = 'current-password';
+    password.placeholder = 'Enter your Harmonic Cloud password';
+    label.appendChild(password);
+    email.closest('label')?.insertAdjacentElement('afterend', label);
+  }
 
-  const button=document.createElement('button');
-  button.id='cloudPasswordSignIn';
-  button.type='button';
-  button.textContent='Sign in with password';
-  actions.insertBefore(button,$('#cloudSyncNow'));
+  let identity = $('#cloudIdentity');
+  if (!identity) {
+    identity = document.createElement('p');
+    identity.id = 'cloudIdentity';
+    identity.className = 'cloud-status';
+    identity.textContent = 'Not signed in';
+    actions.before(identity);
+  }
 
-  button.addEventListener('click',async()=>{
-    const runtime=await resolvedConfig();
-    const url=$('#cloudUrl')?.value.trim()||runtime.url;
-    const anonKey=$('#cloudAnonKey')?.value.trim()||runtime.anonKey;
-    const emailValue=$('#cloudEmail')?.value.trim();
-    const password=input.value;
-    if(!url||!anonKey){setStatus('Cloud setup is incomplete.');return}
-    if(!emailValue||!password){setStatus('Enter your email and password.');return}
-    button.disabled=true;
+  let signIn = $('#cloudPasswordSignIn');
+  if (!signIn) {
+    signIn = document.createElement('button');
+    signIn.id = 'cloudPasswordSignIn';
+    signIn.type = 'button';
+    signIn.textContent = 'Sign in';
+    actions.insertBefore(signIn, $('#cloudSyncNow'));
+  }
+
+  let load = $('#cloudLoadNow');
+  if (!load) {
+    load = document.createElement('button');
+    load.id = 'cloudLoadNow';
+    load.type = 'button';
+    load.textContent = 'Load Cloud Copy';
+    actions.insertBefore(load, $('#cloudSignOut'));
+  }
+
+  let decision = $('#cloudDecision');
+  if (!decision) {
+    decision = document.createElement('div');
+    decision.id = 'cloudDecision';
+    decision.hidden = true;
+    decision.className = 'cloud-actions';
+    decision.innerHTML = '<button id="cloudUseLocal" type="button">Use this device</button><button id="cloudUseRemote" type="button">Use cloud copy</button><button id="cloudCancelDecision" type="button">Cancel</button>';
+    actions.after(decision);
+  }
+
+  const signOut = $('#cloudSignOut');
+  if (signOut) signOut.textContent = 'Sign out';
+
+  signIn.addEventListener('click', async () => {
+    const emailValue = email.value.trim();
+    const passwordValue = password.value;
+    if (!emailValue || !passwordValue) return setStatus('Enter your email and password.');
+    signIn.disabled = true;
     setStatus('Signing in…');
-    try{
-      localStorage.setItem(CONFIG_KEY,JSON.stringify({url,anonKey}));
-      const client=createClient(url,anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'harmonic-city-auth'}});
-      const {data,error}=await client.auth.signInWithPassword({email:emailValue,password});
-      if(error)throw error;
-      if(!data.session)throw new Error('No session returned.');
-      const {data:verified,error:verifyError}=await client.auth.getSession();
-      if(verifyError)throw verifyError;
-      if(!verified.session)throw new Error('The sign-in session did not persist on this device.');
-      setStatus('Signed in. Loading the same cloud workspace on this device…');
-      setTimeout(()=>location.reload(),250);
-    }catch(error){
-      setStatus(`Password sign-in failed: ${error.message}`);
-      button.disabled=false;
+    try {
+      const { client } = await getSupabaseClient();
+      const { data, error } = await client.auth.signInWithPassword({ email: emailValue, password: passwordValue });
+      if (error) throw error;
+      if (!data.session || !data.user) throw new Error('Supabase did not return a valid session.');
+      identity.textContent = `Signed in as ${data.user.email}`;
+      setStatus('Signed in. Choose which saved version to use.');
+    } catch (error) {
+      setStatus(`Sign in failed: ${error.message}`);
+    } finally {
+      signIn.disabled = false;
+    }
+  });
+
+  signOut?.addEventListener('click', async () => {
+    signOut.disabled = true;
+    try {
+      const { client } = await getSupabaseClient();
+      const { error } = await client.auth.signOut({ scope: 'local' });
+      if (error) throw error;
+      identity.textContent = 'Not signed in';
+      setStatus('Signed out. Your current work remains on this device.');
+    } catch (error) {
+      setStatus(`Sign out failed: ${error.message}`);
+    } finally {
+      signOut.disabled = false;
     }
   });
 }
 
-addEventListener('DOMContentLoaded',ensurePasswordUI);
+addEventListener('DOMContentLoaded', ensureAuthUi);
