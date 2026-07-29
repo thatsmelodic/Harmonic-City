@@ -7,7 +7,8 @@ const required = [
   'index.html','app.js','styles.css','creator-studio.js','cloud-sync.js',
   'cloud-sync-v2.js','supabase-client.js','password-auth.js',
   'persistence-guard.js','orbit-label-controls.js','media-quality.js',
-  'cloud-sync.css','creator-studio.css','supabase/schema.sql'
+  'cloud-sync.css','creator-studio.css','supabase/schema.sql',
+  'vendor/supabase-js.umd.js'
 ];
 
 const failures = [];
@@ -54,6 +55,9 @@ if (cloudModules.length) {
   ];
   for (const [label, pattern] of requiredCloudChecks) {
     if (!pattern.test(cloud)) failures.push(`Cloud diagnostic failed: missing ${label}`);
+  }
+  if (/esm\.sh|unpkg\.com|cdn\.jsdelivr\.net|cdn\.skypack\.dev/.test(cloud)) {
+    failures.push('Cloud diagnostic failed: a runtime CDN import was reintroduced (the Supabase SDK must load from ./vendor/supabase-js.umd.js).');
   }
 } else {
   failures.push('Cloud diagnostic failed: no cloud sync modules found (expected cloud-sync-v2.js, supabase-client.js, password-auth.js).');
