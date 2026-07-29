@@ -1,4 +1,12 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+// The SDK is loaded from ./vendor/supabase-js.umd.js (a plain <script> tag in
+// index.html, before this module runs) instead of a third-party CDN import,
+// so cloud sync no longer depends on an external module host being reachable.
+function getCreateClient() {
+  if (typeof window !== 'undefined' && window.supabase?.createClient) {
+    return window.supabase.createClient;
+  }
+  throw new Error('Supabase SDK failed to load.');
+}
 
 const CONFIG_KEY = 'harmonic-city-supabase-config-v1';
 const AUTH_KEY = 'harmonic-city-auth';
@@ -33,7 +41,7 @@ export async function getRuntimeConfig() {
 export async function getSupabaseClient() {
   if (!clientPromise) {
     clientPromise = getRuntimeConfig().then(config => ({
-      client: createClient(config.url, config.anonKey, {
+      client: getCreateClient()(config.url, config.anonKey, {
         auth: {
           persistSession: true,
           autoRefreshToken: true,
