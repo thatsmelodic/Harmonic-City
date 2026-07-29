@@ -15,4 +15,8 @@ EXPOSE 8080
 # SUPABASE_URL and SUPABASE_ANON_KEY must be supplied at `docker run` time
 # (see .env.example). The container starts without them, but /api/config
 # will return 503 until both are set -- this is intentional, not a bug.
+#
+# SUPABASE_SERVICE_ROLE_KEY is optional and only powers /api/public-portal's
+# live-sync-from-Supabase behavior; the site renders correctly from its baked
+# defaults without it.
 CMD ["node", "server.js"]

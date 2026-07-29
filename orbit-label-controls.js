@@ -7,7 +7,7 @@
     orbitLabelWeight: '900',
     orbitLabelSpacing: 0.7,
     orbitLabelCase: 'uppercase',
-    orbitLabelVisible: 'show',
+    orbitLabelVisible: 'hide',
     orbitLabelGap: 8,
     mediaQuality: 'ultra'
   };

@@ -9,7 +9,10 @@
   const guideV=document.createElement('div'),guideH=document.createElement('div');guideV.className='studio-guide v';guideH.className='studio-guide h';document.body.append(guideV,guideH);
   let active=false,selected=null,mode=null,start=null,undo=[],redo=[],mutationLock=false;
   const defaults={};
-  const read=()=>{try{return JSON.parse(localStorage.getItem(LAYOUT_KEY)||'{}')}catch{return{}}};
+  // Baked-in fallback so a visitor with no locally-saved layout still gets the
+  // owner's actual panel positions instead of the raw un-nudged CSS layout.
+  const defaultLayout={'hero-copy':{h:242.60003662109375,w:558.7500915527344,x:-43.19996643066406,y:-223.99996185302734,opacity:1},'orbit-system':{x:-267.99371337890625,y:88.800048828125}};
+  const read=()=>{try{return {...defaultLayout, ...(JSON.parse(localStorage.getItem(LAYOUT_KEY)||'{}'))}}catch{return {...defaultLayout}}};
   let layout=read();
   const write=()=>{localStorage.setItem(LAYOUT_KEY,JSON.stringify(layout));saveEl.textContent='Layout saved automatically';setTimeout(()=>saveEl.textContent='Layout autosaves.',900)};
   const idOf=el=>el?.dataset?.studioId||el?.id||null;

@@ -8,7 +8,8 @@ const required = [
   'cloud-sync-v2.js','supabase-client.js','password-auth.js',
   'persistence-guard.js','orbit-label-controls.js','media-quality.js',
   'cloud-sync.css','creator-studio.css','supabase/schema.sql',
-  'vendor/supabase-js.umd.js'
+  'vendor/supabase-js.umd.js','api/config.js','api/public-portal.js',
+  'defaults/icons/thatsmelodic.png','defaults/icons/schmakinn.png','defaults/icons/2harmonic.png'
 ];
 
 const failures = [];
@@ -19,7 +20,10 @@ for (const file of required) {
 }
 
 const jsFiles = fs.readdirSync(root).filter(name => name.endsWith('.js'));
-for (const file of jsFiles) {
+const apiJsFiles = fs.existsSync(path.join(root, 'api'))
+  ? fs.readdirSync(path.join(root, 'api')).filter(name => name.endsWith('.js')).map(name => path.join('api', name))
+  : [];
+for (const file of [...jsFiles, ...apiJsFiles]) {
   try {
     execFileSync(process.execPath, ['--check', path.join(root, file)], { stdio: 'pipe' });
   } catch (error) {
@@ -61,6 +65,31 @@ if (cloudModules.length) {
   }
 } else {
   failures.push('Cloud diagnostic failed: no cloud sync modules found (expected cloud-sync-v2.js, supabase-client.js, password-auth.js).');
+}
+
+if (fs.existsSync(path.join(root, 'api/public-portal.js'))) {
+  const publicPortal = fs.readFileSync(path.join(root, 'api/public-portal.js'), 'utf8');
+  if (!/SUPABASE_SERVICE_ROLE_KEY/.test(publicPortal)) {
+    failures.push('api/public-portal.js diagnostic failed: does not reference SUPABASE_SERVICE_ROLE_KEY.');
+  }
+  const jsonResponses = [...publicPortal.matchAll(/res\.status\(\d+\)\.json\(\{([\s\S]*?)\}\);/g)];
+  for (const [, body] of jsonResponses) {
+    if (/serviceRoleKey|SUPABASE_SERVICE_ROLE_KEY/.test(body)) {
+      failures.push('api/public-portal.js diagnostic failed: the service role key must never appear in a response body.');
+    }
+  }
+}
+
+if (fs.existsSync(path.join(root, 'app.js'))) {
+  const appJs = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  const requiredAppChecks = [
+    ['a public default media fallback', /defaultMedia/],
+    ['a live public-defaults fetch on boot', /fetch\(['"]\/api\/public-portal['"]/],
+    ['a guard against overwriting real local edits', /hasRealLocalEdit/]
+  ];
+  for (const [label, pattern] of requiredAppChecks) {
+    if (!pattern.test(appJs)) failures.push(`app.js diagnostic failed: missing ${label}`);
+  }
 }
 
 if (fs.existsSync(path.join(root, 'supabase/schema.sql'))) {

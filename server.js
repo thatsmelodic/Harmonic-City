@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const configHandler = require('./api/config.js');
+const publicPortalHandler = require('./api/public-portal.js');
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT) || 8080;
@@ -66,6 +67,14 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/config') {
     wrapResponse(res);
     configHandler(req, res);
+    return;
+  }
+
+  if (pathname === '/api/public-portal') {
+    wrapResponse(res);
+    Promise.resolve(publicPortalHandler(req, res)).catch(() => {
+      if (!res.headersSent) res.status(200).json({ ok: true, configured: true, settings: null });
+    });
     return;
   }
 
