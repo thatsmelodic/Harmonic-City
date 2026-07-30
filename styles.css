@@ -10,4 +10,14 @@
    preserves nearly the same look for a fraction of the compositing cost. Also trims the
    world-node box-shadow from three stacked layers to one -- it's animating continuously
    (orbit) and repainting three heavy shadow stacks per frame adds up on iPhone's GPU. */
-@media(hover:none) and (pointer:coarse){.background-overlay{backdrop-filter:none}.world-node{box-shadow:0 14px 32px rgba(0,0,0,.48)}.orbit-system[data-node-style="glass"] .world-node{backdrop-filter:none;background:color-mix(in srgb,var(--surface) 55%,transparent)}}
+@media(hover:none) and (pointer:coarse){.background-overlay{backdrop-filter:none}.world-node{box-shadow:0 14px 32px rgba(0,0,0,.48)}.orbit-system[data-node-style="glass"] .world-node{backdrop-filter:none;background:color-mix(in srgb,var(--surface) 55%,transparent)}
+/* The orbit ring still runs inside a full perspective/preserve-3d 3D compositing
+   context on every device, plus each icon carries its own translateZ + drop-shadow
+   filter -- all three continuously animating, all three still expensive to composite
+   on iPhone even after removing the backdrop-filter/box-shadow costs above. Flattening
+   to a 2D transform context (transform-style:flat is the default -- this just removes
+   the preserve-3d opt-in) keeps the exact same orbit motion and icon appearance while
+   letting the compositor treat it as a normal 2D layer instead of true 3D, which is
+   substantially cheaper and also removes a class of WebKit 3D-hit-testing flakiness
+   that can make an element visually present but miss taps mid-animation. */
+.orbit-system{perspective:none}.world-node{transform-style:flat}.world-icon{transform:none;filter:none}}
