@@ -9,7 +9,8 @@ const required = [
   'persistence-guard.js','orbit-label-controls.js','media-quality.js',
   'cloud-sync.css','creator-studio.css','supabase/schema.sql',
   'vendor/supabase-js.umd.js','api/config.js','api/public-portal.js',
-  'defaults/icons/thatsmelodic.png','defaults/icons/schmakinn.png','defaults/icons/2harmonic.png'
+  'defaults/icons/thatsmelodic.png','defaults/icons/schmakinn.png','defaults/icons/2harmonic.png',
+  'defaults/icons/core-static.webp'
 ];
 
 const failures = [];
