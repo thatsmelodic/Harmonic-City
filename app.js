@@ -13,10 +13,16 @@ const rawLocalStorageSet=localStorage.setItem.bind(localStorage);
 // as a fallback for any visitor whose browser has no locally-synced media in IndexedDB yet.
 // See scripts/diagnostic.mjs and README for how to refresh these paths after a re-upload.
 const DEFAULT_MEDIA_BASE='https://xsslskkhxyavwvuxyelf.supabase.co/storage/v1/object/public/harmonic-city-media/b7387b68-4169-4c9b-a4cc-64d576cdeca8/harmonic-city';
+// The core media is a 300-frame, 21.6MB animated GIF. GIFs are software-decoded frame
+// by frame (no hardware acceleration like video), and continuously re-decoding one at
+// full size inside the 3D-transformed, box-shadowed orbit stack is a major source of
+// lag/freezing on iPhone Safari. Touch devices get a static frame instead -- same
+// artwork, decoded once, no ongoing cost. Desktop is unaffected either way.
+const isTouchDevice=matchMedia('(hover: none) and (pointer: coarse)').matches;
 const defaultMedia={
   background:{url:`${DEFAULT_MEDIA_BASE}/background/33eb1859-6fef-4afe-864c-1107b4192a8d-Animated-loop.mp4`,type:'video/mp4'},
   intro:{url:`${DEFAULT_MEDIA_BASE}/intro/17b08f2a-1a03-4756-ab55-87fafe641211-Tv-loop.mp4`,type:'video/mp4'},
-  core:{url:`${DEFAULT_MEDIA_BASE}/core/6a68cfd1-255c-4c99-ba09-1047f9dd67a5-Loop-Glow-GIF-by-xponentialdesign.gif`,type:'image/gif'},
+  core:isTouchDevice?{url:'./defaults/icons/core-static.webp',type:'image/webp'}:{url:`${DEFAULT_MEDIA_BASE}/core/6a68cfd1-255c-4c99-ba09-1047f9dd67a5-Loop-Glow-GIF-by-xponentialdesign.gif`,type:'image/gif'},
   audio:{url:`${DEFAULT_MEDIA_BASE}/audio/3c300a37-dddc-4c59-97af-b2a156cd5107-Is-it-worth-it_3.wav`,type:'audio/wav'}
 };
 
@@ -104,6 +110,7 @@ async function fetchPublicDefaults(){
 
     state=mergeDefaults(data.settings.state||{});
     Object.entries(data.settings.assets||{}).forEach(([kind,asset])=>{
+      if(kind==='core'&&isTouchDevice)return; // keep the static mobile-safe core image, never swap in the heavy animated GIF here
       if(asset?.publicUrl)defaultMedia[kind]={url:asset.publicUrl,type:asset.type||defaultMedia[kind]?.type};
     });
     rawLocalStorageSet(KEY,JSON.stringify(state));
