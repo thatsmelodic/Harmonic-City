@@ -86,6 +86,20 @@ function armFirstInteractionAudio(){
   document.addEventListener('keydown',start,{once:true});
 }
 
+// iOS Safari aggressively pauses <video> playback when the tab/app is backgrounded
+// (to save power) and does not resume it automatically when you come back -- the
+// background video, intro video, and any video-backed core media are all affected.
+// This is what makes the page look permanently frozen after switching apps or locking
+// the phone and returning, even though nothing actually crashed. bfcache restores
+// (fired as a 'pageshow' event with persisted:true) hit the same issue since no script
+// re-runs on that path -- init() never fires again, so this can't rely on page load.
+function resumeMediaOnForeground(){
+  document.querySelectorAll('video').forEach(v=>{if(v.paused)v.play().catch(()=>{})});
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)resumeMediaOnForeground()});
+window.addEventListener('pageshow',e=>{if(e.persisted)resumeMediaOnForeground()});
+window.addEventListener('focus',resumeMediaOnForeground);
+
 function fileToDataUrl(file,done){if(!file||!file.type.startsWith('image/'))return;const r=new FileReader();r.onload=()=>done(r.result);r.readAsDataURL(file)}
 function renderWorldEditor(){const e=$('#worldEditor');e.innerHTML='';state.worlds.forEach((w,n)=>{const d=document.createElement('details');d.innerHTML=`<summary>${w.name}</summary>`;[['name','World name'],['eyebrow','Label'],['description','Description'],['emoji','Fallback icon']].forEach(([k,l])=>{const label=document.createElement('label'),input=k==='description'?document.createElement('textarea'):document.createElement('input');label.textContent=l;input.value=w[k];input.oninput=()=>{state.worlds[n][k]=input.value;renderOrbit();renderProfile();save()};label.appendChild(input);d.appendChild(label)});const label=document.createElement('label'),input=document.createElement('input');label.textContent='Custom world icon';input.type='file';input.accept='image/*';input.onchange=()=>fileToDataUrl(input.files[0],data=>{state.worlds[n].customIcon=data;render();save()});label.appendChild(input);d.appendChild(label);
 
