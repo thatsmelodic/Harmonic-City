@@ -21,3 +21,14 @@
    substantially cheaper and also removes a class of WebKit 3D-hit-testing flakiness
    that can make an element visually present but miss taps mid-animation. */
 .orbit-system{perspective:none}.world-node{transform-style:flat}.world-icon{transform:none;filter:none}}
+/* iOS only (Android is already fine here) -- .is-ios is set by a tiny inline UA check
+   in index.html's <head>, since the CSS-only iOS detection technique
+   (@supports(-webkit-touch-callout:none)) isn't verifiable in this repo's test tooling
+   and a correctness fix isn't the place to ship an unverified technique. The orbit's
+   circular path can carry icons through positions outside the visible/tappable area on
+   a hero-panel taller than a typical phone viewport -- during any stutter a node freezes
+   wherever it was, and if that's an out-of-reach spot it looks stuck. Shrinking the
+   orbit radius keeps the same motion, just closer to center, so it stays reachable. */
+html.is-ios .orbit-ring{width:220px;height:220px}
+html.is-ios .world-node{animation-name:orbit-ios}
+@keyframes orbit-ios{from{transform:rotate(0deg) translateX(110px) rotate(0deg)}to{transform:rotate(360deg) translateX(110px) rotate(-360deg)}}
