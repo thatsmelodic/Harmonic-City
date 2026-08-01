@@ -50,6 +50,9 @@
     <h2>Auth session</h2>
     <dl>
       <dt>State</dt><dd id="authState">—</dd>
+      <dt>OWNER_ID (from /api/config)</dt><dd id="ownerIdConfigured">—</dd>
+      <dt>Signed-in uid</dt><dd id="ownerIdSession">—</dd>
+      <dt>Match?</dt><dd id="ownerIdMatch">—</dd>
     </dl>
   </section>
 
@@ -72,6 +75,7 @@
     This page never reveals a full secret — only the first 8 characters are shown.
   </p>
 
+  <script src="./vendor/supabase-js.umd.js"></script>
   <script type="module">
     import { getRuntimeConfig, getSupabaseClient } from './supabase-client.js';
 
@@ -117,12 +121,28 @@
         setText('effectiveError', error.message, 'err');
       }
 
+      const ownerId = raw.body?.ownerId || null;
+      setText('ownerIdConfigured', ownerId || '(not set -- editing/live-sync are locked down for everyone)', ownerId ? undefined : 'warn');
+
       try {
         const { client } = await getSupabaseClient();
         const { data } = await client.auth.getSession();
-        setText('authState', data?.session ? `Signed in as ${data.session.user.email} (uid ${data.session.user.id.slice(0, 8)}…)` : 'Not signed in');
+        const uid = data?.session?.user?.id || null;
+        setText('authState', data?.session ? `Signed in as ${data.session.user.email} (uid ${uid.slice(0, 8)}…)` : 'Not signed in');
+        setText('ownerIdSession', uid || '(not signed in)');
+        if (!uid) {
+          setText('ownerIdMatch', 'Sign in first to check', 'warn');
+        } else if (!ownerId) {
+          setText('ownerIdMatch', 'Cannot check -- OWNER_ID is not configured', 'warn');
+        } else if (uid === ownerId) {
+          setText('ownerIdMatch', 'YES -- this account is the recognized owner. Edit/Customize/Connect Cloud should be visible, and syncs from here should appear on the live public site.', 'ok');
+        } else {
+          setText('ownerIdMatch', 'NO -- this account does NOT match OWNER_ID. Syncing from here will save to your own account but will never appear on the live public site, since api/public-portal.js only serves OWNER_ID\'s data. Update the OWNER_ID env var in Vercel to this uid if this is actually meant to be the owner account.', 'err');
+        }
       } catch (error) {
         setText('authState', `Unavailable: ${error.message}`, 'err');
+        setText('ownerIdSession', '—');
+        setText('ownerIdMatch', '—');
       }
 
       const status = window.HarmonicCloud?.getStatus?.();
