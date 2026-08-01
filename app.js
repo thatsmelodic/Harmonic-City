@@ -96,9 +96,30 @@ function armFirstInteractionAudio(){
 function resumeMediaOnForeground(){
   document.querySelectorAll('video').forEach(v=>{if(v.paused)v.play().catch(()=>{})});
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)resumeMediaOnForeground()});
-window.addEventListener('pageshow',e=>{if(e.persisted)resumeMediaOnForeground()});
-window.addEventListener('focus',resumeMediaOnForeground);
+
+// Simply re-playing paused <video> elements (above) was not enough: on a real iPhone,
+// backgrounding long enough also gets the CSS-driven orbit icon animation stuck static,
+// and can leave click handlers (Connect Cloud, Sign in, Sync now, etc.) silently
+// unresponsive -- just resuming video playback does nothing for either, because iOS is
+// evicting/suspending more of the page's render and script state than just the video
+// decode session, and there's no API to detect or force-repair that from script. A full
+// reload is the one thing guaranteed to reset every stuck layer, since it's what iOS
+// itself does for ordinary tabs it evicts under memory pressure. Scoped to iOS only
+// (confirmed fine on Android) and only after a background long enough to plausibly be
+// the trigger, so a quick glance at the app switcher doesn't cause a jarring reload.
+const isIOS=document.documentElement.classList.contains('is-ios');
+const IOS_RELOAD_THRESHOLD_MS=1000;
+let hiddenAt=0;
+function handleForegroundReturn(){
+  if(isIOS&&hiddenAt&&Date.now()-hiddenAt>IOS_RELOAD_THRESHOLD_MS){location.reload();return}
+  resumeMediaOnForeground();
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)hiddenAt=Date.now();else handleForegroundReturn()});
+// WebKit silently swallows a location.reload() called synchronously (or even via a 0ms
+// setTimeout) from inside a 'pageshow' handler -- it looks like a guard against reload
+// loops during the page-transition lifecycle. A short deferral lets the navigation through.
+window.addEventListener('pageshow',e=>{if(e.persisted){if(isIOS){setTimeout(()=>location.reload(),250)}else{resumeMediaOnForeground()}}});
+window.addEventListener('focus',handleForegroundReturn);
 
 function fileToDataUrl(file,done){if(!file||!file.type.startsWith('image/'))return;const r=new FileReader();r.onload=()=>done(r.result);r.readAsDataURL(file)}
 function renderWorldEditor(){const e=$('#worldEditor');e.innerHTML='';state.worlds.forEach((w,n)=>{const d=document.createElement('details');d.innerHTML=`<summary>${w.name}</summary>`;[['name','World name'],['eyebrow','Label'],['description','Description'],['emoji','Fallback icon']].forEach(([k,l])=>{const label=document.createElement('label'),input=k==='description'?document.createElement('textarea'):document.createElement('input');label.textContent=l;input.value=w[k];input.oninput=()=>{state.worlds[n][k]=input.value;renderOrbit();renderProfile();save()};label.appendChild(input);d.appendChild(label)});const label=document.createElement('label'),input=document.createElement('input');label.textContent='Custom world icon';input.type='file';input.accept='image/*';input.onchange=()=>fileToDataUrl(input.files[0],data=>{state.worlds[n].customIcon=data;render();save()});label.appendChild(input);d.appendChild(label);
