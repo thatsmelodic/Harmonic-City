@@ -26,7 +26,7 @@ export async function getRuntimeConfig() {
     if (response.ok) {
       const data = await response.json();
       if (data?.ok && data.url && data.anonKey) {
-        return { url: data.url, anonKey: data.anonKey, source: 'runtime' };
+        return { url: data.url, anonKey: data.anonKey, ownerId: data.ownerId || null, source: 'runtime' };
       }
     }
   } catch (error) {
