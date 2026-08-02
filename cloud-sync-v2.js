@@ -4,6 +4,16 @@ const STATE_KEY = 'harmonic-city-state-v2';
 const LAYOUT_KEY = 'harmonic-city-studio-layout-v1';
 const CONFIG_KEY = 'harmonic-city-supabase-config-v1';
 const META_KEY = 'harmonic-city-cloud-meta-v3';
+// Same key app.js's fetchPublicDefaults() reads to decide whether a device
+// already has local edits that should never be silently overwritten by the
+// public live-sync fetch. That check is a simple "does this device have any
+// local state at all" test -- true for literally every device that's ever
+// used Creator Studio, including the owner's own. Without this device also
+// being marked as caught-up right after a successful push, the owner's own
+// device (and anyone else's, once they've edited anything locally) can never
+// pick up a live update again -- not this one, not any future one -- because
+// nothing else in the app ever clears that gate.
+const SYNC_META_KEY = 'harmonic-city-public-sync-v1';
 const PORTAL_KEY = 'harmonic-city';
 const BUCKET = 'harmonic-city-media';
 const MEDIA_DB = 'harmonic-city-media';
@@ -175,6 +185,7 @@ async function uploadLocal() {
     if (error) throw error;
     lastCloudTime = parseTime(data?.updated_at || timestamp);
     const value = meta(); value.lastCloudTime = lastCloudTime; writeJson(META_KEY, value);
+    writeJson(SYNC_META_KEY, { updatedAt: data?.updated_at || timestamp });
     localDirty = false; awaitingDecision = false; pendingRemote = null;
     setStatus('This device is now saved to Harmonic Cloud.');
     return true;
