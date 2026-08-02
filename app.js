@@ -144,8 +144,14 @@ async function fetchPublicDefaults(){
     if(syncMeta?.updatedAt&&syncMeta.updatedAt===data.updatedAt)return; // already current
 
     state=mergeDefaults(data.settings.state||{});
+    // The baked-in DEFAULT_MEDIA_BASE core is skipped on touch devices (further up this
+    // file) because it's specifically the original 300-frame/21.6MB GIF that caused the
+    // iPhone freeze/lag this whole engagement started from. That's about protecting the
+    // very first, never-customized load -- it was never meant to also silently override
+    // whatever the owner deliberately uploads afterward. A synced custom core image is a
+    // choice the owner made on purpose; if they pick something heavy, that's on them now,
+    // not something to override without telling them.
     Object.entries(data.settings.assets||{}).forEach(([kind,asset])=>{
-      if(kind==='core'&&isTouchDevice)return; // keep the static mobile-safe core image, never swap in the heavy animated GIF here
       if(asset?.publicUrl)defaultMedia[kind]={url:asset.publicUrl,type:asset.type||defaultMedia[kind]?.type};
     });
     rawLocalStorageSet(KEY,JSON.stringify(state));
