@@ -137,23 +137,34 @@ async function fetchPublicDefaults(){
     if(!res.ok)return;
     const data=await res.json();
     if(!data?.ok||!data.settings)return;
-    const rawKey=localStorage.getItem(KEY);
-    let syncMeta=null;try{syncMeta=JSON.parse(localStorage.getItem(SYNC_META_KEY)||'null')}catch{}
-    const hasRealLocalEdit=rawKey!==null&&!syncMeta;
-    if(hasRealLocalEdit)return; // a person edited this device locally -- never overwrite that
-    if(syncMeta?.updatedAt&&syncMeta.updatedAt===data.updatedAt)return; // already current
 
-    state=mergeDefaults(data.settings.state||{});
     // The baked-in DEFAULT_MEDIA_BASE core is skipped on touch devices (further up this
     // file) because it's specifically the original 300-frame/21.6MB GIF that caused the
     // iPhone freeze/lag this whole engagement started from. That's about protecting the
     // very first, never-customized load -- it was never meant to also silently override
-    // whatever the owner deliberately uploads afterward. A synced custom core image is a
-    // choice the owner made on purpose; if they pick something heavy, that's on them now,
-    // not something to override without telling them.
+    // whatever the owner deliberately uploads afterward, so a synced custom asset (this
+    // loop) is applied unconditionally, on every platform.
+    //
+    // defaultMedia is also a plain runtime object -- it resets to the baked-in defaults
+    // on every single page load, since nothing about it is ever persisted to localStorage.
+    // It has to be re-applied here every time a live update exists, regardless of whether
+    // the local *state* itself is already up to date. Gating this on the same "already
+    // current" check as the state/localStorage write below was a real bug: a device could
+    // correctly persist a synced coreMediaId, then still render the old baked-in image on
+    // every subsequent load, because nothing told this fresh defaultMedia object what
+    // that id actually resolves to -- until the NEXT time the remote data changed and
+    // this function did a full apply again.
     Object.entries(data.settings.assets||{}).forEach(([kind,asset])=>{
       if(asset?.publicUrl)defaultMedia[kind]={url:asset.publicUrl,type:asset.type||defaultMedia[kind]?.type};
     });
+
+    const rawKey=localStorage.getItem(KEY);
+    let syncMeta=null;try{syncMeta=JSON.parse(localStorage.getItem(SYNC_META_KEY)||'null')}catch{}
+    const hasRealLocalEdit=rawKey!==null&&!syncMeta;
+    if(hasRealLocalEdit){render();loadAudio();return} // a person edited this device locally -- never overwrite that, but still re-render with the refreshed asset map above
+    if(syncMeta?.updatedAt&&syncMeta.updatedAt===data.updatedAt){render();loadAudio();return} // state already current, but still re-render with the refreshed asset map above
+
+    state=mergeDefaults(data.settings.state||{});
     rawLocalStorageSet(KEY,JSON.stringify(state));
     rawLocalStorageSet(SYNC_META_KEY,JSON.stringify({updatedAt:data.updatedAt||null}));
     render();loadAudio();
